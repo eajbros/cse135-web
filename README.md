@@ -13,7 +13,13 @@ Deployment details:
 - The public key is authorized on the server for the deployment user.
 - After authentication is successful, the workflow runs `git pull` in the site’s directory and reloads Apache.
 
+## Website Login
+
 This setup ensures that any changes pushed to the `main` branch are automatically deployed to the website.
 website login:\
 username: root\
 password: 2026ILOVEEM
+
+## Textual Content Compression
+
+After enabling mod_deflate, the HTML response is compressed using gzip before being sent over. With content-encoding: gzip, the transferred HTML file size is smaller than the original.
