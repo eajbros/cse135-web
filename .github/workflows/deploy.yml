@@ -1,0 +1,24 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: 138.68.56.108
+          username: deploy
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: 22
+          script: |
+            cd /var/www/html
+            git pull origin main
+            sudo systemctl reload apache2
+
