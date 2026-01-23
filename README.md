@@ -1,7 +1,7 @@
 # cse135-web
 
 ## Team Members
-- Ethan Jenkins A17711518
+- Ethan Jenkins
 - Nian-Nian Wang
 
 ## Grader Account
