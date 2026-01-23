@@ -14,11 +14,11 @@ jobs:
         uses: appleboy/ssh-action@master
         with:
           host: 138.68.56.108
-          username: root
+          username: deploy
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
           script: |
-            cd /var/www/html
+            cd /var/www
             git pull origin main
             sudo systemctl reload apache2
 
