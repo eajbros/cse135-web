@@ -20,6 +20,8 @@ print "<p>This program was generated at: $date</p>";
 # IP Address is an environment variable when using CGI
 $address = $ENV{REMOTE_ADDR};
 print "<p>Your current IP Address is: $address</p>";
+print "<p>This program was generated at: $date</p>";
+print "<p>This program was generated at: $date</p>";
 
 print "</body>";
 print "</html>";
