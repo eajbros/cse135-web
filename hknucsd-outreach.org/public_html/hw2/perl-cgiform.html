@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Perl CGI Session Form</title>
+</head>
+<body>
+  <h1>Perl Session Test</h1>
+  <hr>
+
+  <form action="/cgi-bin/perl-sessions-1.pl" method="POST">
+    <label>
+      What is your name?
+      <input type="text" name="username" autocomplete="off">
+    </label>
+    <br><br>
+    <input type="submit" value="Save Session">
+  </form>
+
+  <p>
+    <a href="/cgi-bin/perl-sessions-2.pl">View Session</a> |
+    <a href="/cgi-bin/perl-destroy-session.pl">Destroy Session</a>
+  </p>
+
+  <p><a href="/">Home</a></p>
+</body>
+</html>
