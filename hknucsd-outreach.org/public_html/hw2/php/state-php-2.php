@@ -24,7 +24,11 @@ function h($s) {
   <?php endif; ?>
 
   <br><br>
-  <a href="./php-sessions-1.php">Session Page 1</a><br>
+  <a href="./state-php-1.php">Session Page 1</a><br>
   <a href="./php-cgiform.html">PHP CGI Form</a><br>
+
+  <form style="margin-top:30px" action="./state-php-destroy.php" method="get">
+    <button type="submit">Destroy Session</button>
+  </form>
 </body>
 </html>

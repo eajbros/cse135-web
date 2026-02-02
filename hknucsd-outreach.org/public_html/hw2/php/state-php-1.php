@@ -32,10 +32,10 @@ function h($s) {
 
   <br><br>
 
-  <a href="./php-sessions-2.php">Session Page 2</a><br>
+  <a href="./state-php-2.php">Session Page 2</a><br>
   <a href="./php-cgiform.html">PHP CGI Form</a><br>
 
-  <form style="margin-top:30px" action="./php-destroy-session.php" method="get">
+  <form style="margin-top:30px" action="./state-php-destroy.php" method="get">
     <button type="submit">Destroy Session</button>
   </form>
 </body>
