@@ -9,7 +9,14 @@
 </head>
 
 <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
-<script>window.LogRocket && window.LogRocket.init('eravmu/hknucsd-outreachorg');</script>
+<script>
+  window.LogRocket && window.LogRocket.init('eravmu/hknucsd-outreachorg');
+  LogRocket.identify(window.USER_ID || 'guest', {
+    site: 'CSE 135 Homework 2',
+    page: window.location.pathname,
+    userAgent: navigator.userAgent
+  });
+</script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-7VVG4E7T9J"></script>
 <script>
