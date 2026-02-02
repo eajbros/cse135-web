@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Echo Test Form</title>
+  <style>
+    body { font-family: sans-serif; }
+    label { display: block; margin-top: 10px; }
+  </style>
+</head>
+
+<body>
+  <h1>Echo Test Form</h1>
+  <p>
+    This form submits data to different echo endpoints using various
+    HTTP methods and encodings.
+  </p>
+  <hr>
+
+  <!--
+    BASELINE FORM (works with JavaScript OFF)
+    Defaults:
+      - GET
+      - x-www-form-urlencoded
+      - Python echo endpoint
+  -->
+  <form id="echoForm"
+        action="/cgi-bin/echo-python.py"
+        method="GET">
+
+    <label>
+      Language:
+      <select id="language">
+        <option value="python">Python</option>
+        <option value="php">PHP</option>
+        <option value="c">C</option>
+      </select>
+    </label>
+
+    <label>
+      HTTP Method:
+      <select id="method">
+        <option value="GET">GET</option>
+        <option value="POST">POST</option>
+        <option value="PUT">PUT</option>
+        <option value="DELETE">DELETE</option>
+      </select>
+    </label>
+
+    <label>
+      Encoding:
+      <select id="encoding">
+        <option value="form">x-www-form-urlencoded</option>
+        <option value="json">application/json</option>
+      </select>
+    </label>
+
+    <label>
+      Message:
+      <input type="text" name="message" id="message" placeholder="Hello Echo">
+    </label>
+
+    <br>
+    <button type="submit">Send Request</button>
+  </form>
+
+  <p>
+    <a href="/">Home</a>
+  </p>
+
+  <!--
+    VANILLA JAVASCRIPT ENHANCEMENT
+    - Adjusts endpoint
+    - Adjusts HTTP method
+    - Uses fetch() for JSON bodies
+  -->
+  <script>
+    const form = document.getElementById("echoForm");
+    const language = document.getElementById("language");
+    const method = document.getElementById("method");
+    const encoding = document.getElementById("encoding");
+    const message = document.getElementById("message");
+
+    form.addEventListener("submit", function (e) {
+      const lang = language.value;
+      const httpMethod = method.value;
+      const enc = encoding.value;
+
+      /* Choose endpoint based on language */
+      if (lang === "python") {
+        form.action = "/cgi-bin/echo-python.py";
+      } else if (lang === "php") {
+        form.action = "/hw2/php/echo-php.php";
+      } else if (lang === "c") {
+        form.action = "/cgi-bin/echo-c";
+      }
+
+      /* Set method */
+      form.method = httpMethod;
+
+      /* If JSON encoding is selected, override normal form submission */
+      if (enc === "json") {
+        e.preventDefault();
+
+        const payload = {
+          message: message.value
+        };
+
+        fetch(form.action, {
+          method: httpMethod,
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        })
+        .then(response => response.text())
+        .then(text => {
+          document.open();
+          document.write(text);
+          document.close();
+        });
+      }
+    });
+  </script>
+
+</body>
+</html>
