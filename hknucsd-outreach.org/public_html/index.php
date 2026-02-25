@@ -41,6 +41,13 @@ if (!isset($_COOKIE['sid']) || !preg_match('/^[a-f0-9]{32}$/', $_COOKIE['sid']))
 
   gtag('config', 'G-7VVG4E7T9J');
 </script>
+<!-- Privacy-friendly analytics by Plausible -->
+<script async src="https://plausible.io/js/pa-v8Cnis8TMYwI0I3yAJoiL.js"></script>
+<script>
+  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+  plausible.init()
+</script>
+
 
 <body>
   <h1>CSE 135</h1>
