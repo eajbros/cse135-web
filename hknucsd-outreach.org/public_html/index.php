@@ -1,3 +1,18 @@
+<?php
+if (!isset($_COOKIE['sid']) || !preg_match('/^[a-f0-9]{32}$/', $_COOKIE['sid'])) {
+  $sid = bin2hex(random_bytes(16));
+  setcookie('sid', $sid, [
+    'expires'  => time() + 60*60*24*30,
+    'path'     => '/',
+    'domain'   => '.yourdomain.com',
+    'secure'   => true,
+    'httponly' => false,
+    'samesite' => 'Lax'
+  ]);
+  $_COOKIE['sid'] = $sid;
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 
