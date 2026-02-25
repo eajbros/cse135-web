@@ -4,7 +4,7 @@ if (!isset($_COOKIE['sid']) || !preg_match('/^[a-f0-9]{32}$/', $_COOKIE['sid']))
   setcookie('sid', $sid, [
     'expires'  => time() + 60*60*24*30,
     'path'     => '/',
-    'domain'   => '.yourdomain.com',
+    'domain'   => '.hknucsd-outreach.org',
     'secure'   => true,
     'httponly' => false,
     'samesite' => 'Lax'
