@@ -56,9 +56,12 @@ function beaconSend(obj, force = false) {
 
   // Fallback to fetch (this is still “working”; sendBeacon is only suggested)
   if (!ok) {
-    fetch(ENDPOINT, { method: "POST", body: blob, keepalive: true })
-      .then(() => console.log("[collector] fetch fallback sent"))
-      .catch((e) => console.error("[collector] fetch fallback failed:", e));
+    fetch(ENDPOINT, {
+      method: "POST",
+      body: blob,
+      keepalive: true,
+      credentials: "omit"
+    }).catch(()=>{});
   }
 }
 
