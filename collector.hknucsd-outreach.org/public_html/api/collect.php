@@ -43,3 +43,5 @@ file_put_contents(
 );
 
 http_response_code(204);
+
+?>
