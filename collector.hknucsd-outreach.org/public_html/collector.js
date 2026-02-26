@@ -75,7 +75,7 @@ function queueEvent(type, data) {
     data: data ?? {}
   });
 
-  if (EVENT_QUEUE.length >= 25) flush(true);
+  if (EVENT_QUEUE.length >= 10) flush(true);
 
   if (!FLUSH_TIMER) {
     FLUSH_TIMER = setTimeout(() => {
@@ -750,7 +750,7 @@ const throttle = (fn, ms) => {
 
 window.addEventListener("mousemove", throttle((e) => {
   queueEvent("mousemove", { x: e.clientX, y: e.clientY });
-}, 100), { passive: true });
+}, 250), { passive: true });
 
 window.addEventListener("click", (e) => {
   queueEvent("click", { x: e.clientX, y: e.clientY, button: e.button });
