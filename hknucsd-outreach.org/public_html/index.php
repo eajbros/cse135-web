@@ -24,7 +24,7 @@ if (!isset($_COOKIE['sid']) || !preg_match('/^[a-f0-9]{32}$/', $_COOKIE['sid']))
 </head>
 
 <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
-<script defer src="https://collector.hknucsd-outreach.org/collector.js"></script>
+<script defer src="https://collector.hknucsd-outreach.org/collector.js?v=<?=time()?>"></script>
 <script>
   window.LogRocket && window.LogRocket.init('eravmu/hknucsd-outreachorg');
   LogRocket.identify(window.USER_ID || 'guest', {
