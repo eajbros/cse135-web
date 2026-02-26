@@ -23,14 +23,17 @@ function getCookie(name) {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-const SID = getCookie("sid");
+function getSID() {
+  return getCookie("sid");
+}
 
 // ===== batching =====
 let EVENT_QUEUE = [];
 let FLUSH_TIMER = null;
 
 function beaconSend(obj, force = false) {
-  if (!SID) return; // session tie-in is required
+  const sid = getSID();
+  if (!sid) return;// session tie-in is required
   const blob = new Blob([JSON.stringify(obj)], { type: "application/json" });
 
   const ok = navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, blob);
@@ -40,7 +43,8 @@ function beaconSend(obj, force = false) {
 }
 
 function queueEvent(type, data) {
-  if (!SID) return;
+  const sid = getSID();
+  if (!sid) return;
   EVENT_QUEUE.push({
     type,
     ts: Date.now(),
@@ -59,7 +63,8 @@ function queueEvent(type, data) {
 }
 
 function flush(force) {
-  if (!EVENT_QUEUE.length) return;
+  const sid = getSID();
+  if (!sid || !EVENT_QUEUE.length) return;
   beaconSend(
     {
       sid: SID,
@@ -574,15 +579,16 @@ function clear(markName) {
 /** 
  * Collect and report errors
  */ 
-function reportError(error) {
-  let payload = {
-    name: error.name,
-    message: error.line,
-    url: document.location.href,
-    stack: error.stack
+function reportError(msg, url, lineNo, columnNo, error) {
+  const payload = {
+    message: String(msg || (error && error.message) || "unknown"),
+    url: String(url || document.location.href),
+    line: lineNo ?? null,
+    col: columnNo ?? null,
+    stack: error && error.stack ? String(error.stack).slice(0, 4000) : null
   };
-  
-  reportPerf(`ERROR: ${payload.name}`, payload);
+  queueEvent("error", payload);
+  flush(false);
 }
 
 // Utility functions for data collection/formatting
@@ -622,9 +628,9 @@ window.onload = () => {
   metricTypes.forEach(metVal => end(metVal));
 };
 
-window.onerror = function(msg, url, lineNo, columnNo, error){
-  reportError(error);
-}
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+  reportError(msg, url, lineNo, columnNo, error);
+};
 
 // ===== CSE135 Required Static + Activity =====
 
