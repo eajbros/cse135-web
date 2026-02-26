@@ -67,7 +67,7 @@ function flush(force) {
   if (!sid || !EVENT_QUEUE.length) return;
   beaconSend(
     {
-      sid: SID,
+      sid: sid,
       sent_at: Date.now(),
       page: location.href,
       events: EVENT_QUEUE.splice(0, EVENT_QUEUE.length)
