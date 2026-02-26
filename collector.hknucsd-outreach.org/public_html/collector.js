@@ -676,7 +676,7 @@ function detectCssEnabled() {
 
 function detectImagesEnabled() {
   // use your MAIN SITE favicon (must exist)
-  const url = "https://www.hknucsd-outreach.org/favicon.ico?img=" + Date.now();
+  const url = "https://hknucsd-outreach.org/favicon.ico?img=" + Date.now();
   return new Promise((resolve) => {
     const img = new Image();
     let done = false;
