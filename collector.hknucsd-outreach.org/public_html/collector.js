@@ -33,12 +33,32 @@ let FLUSH_TIMER = null;
 
 function beaconSend(obj, force = false) {
   const sid = getSID();
-  if (!sid) return;// session tie-in is required
-  const blob = new Blob([JSON.stringify(obj)], { type: "application/json" });
+  if (!sid) {
+    console.warn("[collector] no sid cookie; not sending");
+    return;
+  }
 
-  const ok = navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, blob);
-  if (!ok && force) {
-    fetch(ENDPOINT, { method: "POST", body: blob, keepalive: true }).catch(() => {});
+  const bodyStr = JSON.stringify(obj);
+  const blob = new Blob([bodyStr], { type: "application/json" });
+
+  // IMPORTANT: print size (sendBeacon can fail if too large)
+  console.log("[collector] sending bytes=", bodyStr.length, "endpoint=", ENDPOINT);
+
+  // Try beacon first
+  let ok = false;
+  try {
+    ok = navigator.sendBeacon(ENDPOINT, blob);
+    console.log("[collector] sendBeacon ok=", ok);
+  } catch (e) {
+    console.error("[collector] sendBeacon threw:", e);
+    ok = false;
+  }
+
+  // Fallback to fetch (this is still “working”; sendBeacon is only suggested)
+  if (!ok) {
+    fetch(ENDPOINT, { method: "POST", body: blob, keepalive: true })
+      .then(() => console.log("[collector] fetch fallback sent"))
+      .catch((e) => console.error("[collector] fetch fallback failed:", e));
   }
 }
 
