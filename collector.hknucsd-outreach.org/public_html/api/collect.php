@@ -9,6 +9,7 @@ $allow = [
 if (in_array($origin, $allow, true)) {
   header("Access-Control-Allow-Origin: $origin");
   header("Vary: Origin");
+  header("Access-Control-Allow-Credentials: true");
 }
 
 // Needed for preflight
