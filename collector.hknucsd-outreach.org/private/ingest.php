@@ -21,6 +21,8 @@ $pdo = new PDO($dsn, $DB_USER, $DB_PASS, [
 if (!file_exists($JSONL)) {
   // ensure file exists
   file_put_contents($JSONL, "");
+  @chgrp($JSONL, "www-data");
+  @chmod($JSONL, 0664);
   echo "No beacons.jsonl existed; created empty. Ingested=0\n";
   exit(0);
 }
@@ -35,6 +37,8 @@ if (!@rename($JSONL, $rot)) {
 
 // Immediately create fresh empty file for the collector to append to
 file_put_contents($JSONL, "");
+@chgrp($JSONL, "www-data");
+@chmod($JSONL, 0664);
 
 // Ingest rotated file
 $insert = $pdo->prepare("
