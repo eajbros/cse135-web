@@ -40,7 +40,7 @@ if (!is_array($data)) {
 file_put_contents(
   __DIR__ . '/../beacons.jsonl',
   json_encode($data) . "\n",
-  FILE_APPEND
+  FILE_APPEND | LOCK_EX
 );
 
 http_response_code(204);
