@@ -614,6 +614,19 @@ function reportError(msg, url, lineNo, columnNo, error) {
   flush(false);
 }
 
+window.addEventListener("unhandledrejection", (e) => {
+  const err = e.reason;
+  queueEvent("error", {
+    message: String(err?.message ?? err ?? "unhandledrejection"),
+    url: location.href,
+    line: null,
+    col: null,
+    stack: err?.stack ? String(err.stack).slice(0, 4000) : null,
+    type: "unhandledrejection",
+  });
+  flush(false);
+});
+
 // Utility functions for data collection/formatting
 
 function roundByTwo(num) {
@@ -654,8 +667,6 @@ window.onload = () => {
 window.onerror = function(msg, url, lineNo, columnNo, error) {
   reportError(msg, url, lineNo, columnNo, error);
 };
-
-// ===== CSE135 Required Static + Activity =====
 
 // best-effort manual checks
 function detectCssEnabled() {
@@ -798,5 +809,10 @@ setInterval(() => {
 // LEAVE
 window.addEventListener("beforeunload", () => {
   queueEvent("leave", { leftAt: Date.now() });
+  flush(true);
+});
+
+window.addEventListener("pagehide", () => {
+  queueEvent("leave", { leftAt: Date.now(), via: "pagehide" });
   flush(true);
 });
