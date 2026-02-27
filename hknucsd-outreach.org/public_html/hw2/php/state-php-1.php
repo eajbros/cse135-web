@@ -20,6 +20,7 @@ function h($s) {
 <head>
   <meta charset="UTF-8" />
   <title>PHP Sessions</title>
+  <script defer src="https://collector.hknucsd-outreach.org/collector.js?v=<?=time()?>" ></script>
 </head>
 <body>
   <h1>PHP Sessions Page 1</h1>

