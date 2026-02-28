@@ -3,6 +3,4 @@ RewriteBase /api/
 
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-
-# rewrite anything under /api/... to /api/index.php
-RewriteRule ^.*$ index.php [QSA,L]
+RewriteRule ^ index.php [QSA,L]
