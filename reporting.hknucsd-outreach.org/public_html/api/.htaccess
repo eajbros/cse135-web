@@ -1,8 +1,8 @@
 RewriteEngine On
+RewriteBase /api/
 
-# If the requested file or directory exists, serve it
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 
-# Otherwise, route everything to index.php
+# rewrite anything under /api/... to /api/index.php
 RewriteRule ^.*$ index.php [QSA,L]
