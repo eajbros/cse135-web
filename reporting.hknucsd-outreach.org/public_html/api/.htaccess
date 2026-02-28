@@ -1,7 +1,9 @@
-RewriteEngine On
+THIS_IS_INVALID
+
+# RewriteEngine On
 
 # Only rewrite requests that start with /api/
-RewriteRule ^api(/.*)?$ index.php [QSA,L]
+#  RewriteRule ^api(/.*)?$ index.php [QSA,L]
 
 # (optional) If you want /api to also work without trailing slash:
-RewriteRule ^api$ index.php [QSA,L]
+# RewriteRule ^api$ index.php [QSA,L]
