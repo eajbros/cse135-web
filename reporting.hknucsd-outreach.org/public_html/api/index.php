@@ -34,7 +34,7 @@ $segments = explode('/', trim($path, '/'));
 // Example: /api/beacons/5 → ["api", "beacons", "5"]
 $id = $segments[2] ?? null;
 
-if (!isset($segments[1]) || $segments[1] !== 'beacons') {
+if (!isset($segments[2]) || $segments[2] !== 'beacons') {
     http_response_code(404);
     echo json_encode(["error" => "Not found"]);
     exit;
