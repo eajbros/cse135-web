@@ -1,6 +1,17 @@
 <?php
 header("Content-Type: application/json");
 
+// CORS (adjust origin as needed)
+header("Access-Control-Allow-Origin: https://hknucsd-outreach.org");
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
 $DB_HOST = "localhost";
 $DB_NAME = "collector_db";
 $DB_USER = "collector_user";

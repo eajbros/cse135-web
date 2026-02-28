@@ -1,8 +1,7 @@
 RewriteEngine On
 
-# If the file or directory exists, serve it
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+# Only rewrite requests that start with /api/
+RewriteRule ^api(/.*)?$ index.php [QSA,L]
 
-# Otherwise, route everything to index.php
-RewriteRule ^(.*)$ index.php [QSA,L]
+# (optional) If you want /api to also work without trailing slash:
+RewriteRule ^api$ index.php [QSA,L]
