@@ -3,18 +3,6 @@ require_once __DIR__ . '/auth.php';
 require_login();
 require_once __DIR__ . '/db.php';
 
-function path_only($url) {
-    if (!$url) {
-        return '(no page)';
-    }
-
-    $path = parse_url($url, PHP_URL_PATH);
-    if ($path === null || $path === false || $path === '') {
-        return '/';
-    }
-    return $path;
-}
-
 function display_event_type($type) {
     $map = [
         'mousemove' => 'mouse move',
@@ -26,9 +14,30 @@ function display_event_type($type) {
         'click' => 'click',
         'enter' => 'enter',
         'leave' => 'leave',
+        'keydown' => 'key down',
     ];
 
     return $map[$type] ?? $type;
+}
+
+function normalize_metric_name($name) {
+    $name = strtolower(trim((string)$name));
+
+    $map = [
+        'fcp' => 'FCP',
+        'fp' => 'FP',
+        'fid' => 'FID',
+        'lcp' => 'LCP',
+        'lcpfinal' => 'LCP',
+        'cls' => 'CLS',
+        'tbt' => 'TBT',
+        'navigationtiming' => 'navigationTiming',
+        'networkinformation' => 'networkInformation',
+        'storageestimate' => 'storageEstimate',
+        'initialbrowserdata' => 'initialBrowserData',
+    ];
+
+    return $map[$name] ?? $name;
 }
 
 function metric_rating(string $metric, $value): string {
@@ -40,13 +49,13 @@ function metric_rating(string $metric, $value): string {
 
     switch ($metric) {
         case 'FCP':
-            if ($value <= 1800) return 'good';
-            if ($value <= 3000) return 'needs improvement';
+            if ($value <= 1.8) return 'good';
+            if ($value <= 3.0) return 'needs improvement';
             return 'poor';
 
         case 'LCP':
-            if ($value <= 2500) return 'good';
-            if ($value <= 4000) return 'needs improvement';
+            if ($value <= 2.5) return 'good';
+            if ($value <= 4.0) return 'needs improvement';
             return 'poor';
 
         case 'CLS':
@@ -55,13 +64,13 @@ function metric_rating(string $metric, $value): string {
             return 'poor';
 
         case 'TBT':
-            if ($value <= 200) return 'good';
-            if ($value <= 600) return 'needs improvement';
+            if ($value <= 0.2) return 'good';
+            if ($value <= 0.6) return 'needs improvement';
             return 'poor';
 
         case 'FID':
-            if ($value <= 100) return 'good';
-            if ($value <= 300) return 'needs improvement';
+            if ($value <= 0.1) return 'good';
+            if ($value <= 0.3) return 'needs improvement';
             return 'poor';
 
         default:
@@ -80,105 +89,7 @@ function format_metric(string $metric, $value): string {
         return number_format($value, 3);
     }
 
-    if ($metric === 'FCP' || $metric === 'LCP') {
-        return number_format($value / 1000, 2) . ' s';
-    }
-
-    return number_format($value, 0) . ' ms';
-}
-
-function first_numeric_value(array $sources, array $keys) {
-    foreach ($sources as $source) {
-        if (!is_array($source)) {
-            continue;
-        }
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $source) && is_numeric($source[$key])) {
-                return (float)$source[$key];
-            }
-        }
-    }
-    return null;
-}
-
-function extract_perf_metrics(array $event): array {
-    $data = $event['data'] ?? [];
-    $props = $data['eventProperties'] ?? [];
-    $nav = $data['navigatorInformation'] ?? [];
-    $rawData = $data['data'] ?? [];
-
-    $measureName = $data['metricName'] ?? null;
-    $value = null;
-
-    if (is_numeric($rawData)) {
-        $value = (float)$rawData;
-    } elseif (is_array($rawData)) {
-        $value = first_numeric_value([$rawData], ['value', 'metricValue', 'delta']);
-    }
-
-    $metrics = [
-        'FCP' => null,
-        'LCP' => null,
-        'CLS' => null,
-        'TBT' => null,
-        'FID' => null,
-    ];
-
-    if (is_string($measureName) && array_key_exists($measureName, $metrics) && $value !== null) {
-        $metrics[$measureName] = $value;
-    }
-
-    $metrics['FCP'] = $metrics['FCP'] ?? first_numeric_value(
-        [$data, $props, $rawData, $nav],
-        ['FCP', 'fcp', 'firstContentfulPaint', 'first_contentful_paint']
-    );
-
-    $metrics['LCP'] = $metrics['LCP'] ?? first_numeric_value(
-        [$data, $props, $rawData, $nav],
-        ['LCP', 'lcp', 'largestContentfulPaint', 'largest_contentful_paint']
-    );
-
-    $metrics['CLS'] = $metrics['CLS'] ?? first_numeric_value(
-        [$data, $props, $rawData, $nav],
-        ['CLS', 'cls', 'cumulativeLayoutShift', 'cumulative_layout_shift']
-    );
-
-    $metrics['TBT'] = $metrics['TBT'] ?? first_numeric_value(
-        [$data, $props, $rawData, $nav],
-        ['TBT', 'tbt', 'totalBlockingTime', 'total_blocking_time']
-    );
-
-    $metrics['FID'] = $metrics['FID'] ?? first_numeric_value(
-        [$data, $props, $rawData, $nav],
-        ['FID', 'fid', 'firstInputDelay', 'first_input_delay']
-    );
-
-    return $metrics;
-}
-
-function extract_waterfall_parts(array $event): array {
-    $data = $event['data'] ?? [];
-    $props = $data['eventProperties'] ?? [];
-    $nav = $data['navigatorInformation'] ?? [];
-    $rawData = $data['data'] ?? [];
-
-    $sources = [$props, $rawData, $nav, $data];
-
-    $dns = first_numeric_value($sources, ['dns', 'dnsLookup', 'dns_lookup']);
-    $tcp = first_numeric_value($sources, ['tcp', 'connect', 'tcpConnect', 'tcp_connect']);
-    $ssl = first_numeric_value($sources, ['ssl', 'tls', 'sslHandshake', 'ssl_handshake']);
-    $ttfb = first_numeric_value($sources, ['ttfb', 'TTFB', 'timeToFirstByte', 'time_to_first_byte']);
-    $dom = first_numeric_value($sources, ['domLoad', 'domInteractive', 'domContentLoaded', 'dom_content_loaded']);
-    $load = first_numeric_value($sources, ['loadEvent', 'loadComplete', 'load', 'load_complete']);
-
-    return [
-        'DNS' => $dns,
-        'TCP' => $tcp,
-        'SSL' => $ssl,
-        'TTFB' => $ttfb,
-        'DOM' => $dom,
-        'Load' => $load,
-    ];
+    return number_format($value, 2) . ' s';
 }
 
 $stmt = $pdo->query("
@@ -195,12 +106,12 @@ $stmt = $pdo->query("
 $rows = $stmt->fetchAll();
 
 /*
- * 1) User Interaction Events
+ * 1) User interaction events
  */
 $userInteractionCounts = [];
 
 /*
- * 2) Performance Health Overview
+ * 2) Performance overview
  */
 $metricBuckets = [
     'FCP' => [],
@@ -209,14 +120,21 @@ $metricBuckets = [
     'TBT' => [],
     'FID' => [],
 ];
+$metricScores = [
+    'FCP' => [],
+    'LCP' => [],
+    'CLS' => [],
+    'TBT' => [],
+    'FID' => [],
+];
 
 /*
- * 3) Page Load Waterfall
- * Use the most recent perf event that contains at least one useful timing component.
+ * 3) Page timing overview
+ * We use the most recent navigationTiming perf event.
  */
-$waterfallSource = null;
-$waterfallPage = null;
-$waterfallSid = null;
+$pageTimingValue = null;
+$pageTimingPage = null;
+$pageTimingSid = null;
 
 foreach ($rows as $row) {
     $decoded = json_decode($row['payload'], true);
@@ -233,6 +151,11 @@ foreach ($rows as $row) {
         $type = $event['type'] ?? '(unknown)';
 
         if ($type !== 'perf') {
+            $ignore = ['static', 'performance_required'];
+            if (in_array($type, $ignore, true)) {
+                continue;
+            }
+
             $label = display_event_type($type);
             if (!isset($userInteractionCounts[$label])) {
                 $userInteractionCounts[$label] = 0;
@@ -241,28 +164,29 @@ foreach ($rows as $row) {
             continue;
         }
 
-        $perfMetrics = extract_perf_metrics($event);
-        foreach ($perfMetrics as $metricName => $metricValue) {
-            if ($metricValue !== null) {
-                $metricBuckets[$metricName][] = $metricValue;
+        $perf = $event['data'] ?? [];
+        $metricNameRaw = $perf['metricName'] ?? null;
+        $metricName = normalize_metric_name($metricNameRaw);
+        $metricValueRaw = $perf['data'] ?? null;
+        $vitalsScore = $perf['vitalsScore'] ?? null;
+
+        $metricValue = is_numeric($metricValueRaw) ? (float)$metricValueRaw : null;
+
+        if (isset($metricBuckets[$metricName]) && $metricValue !== null) {
+            $metricBuckets[$metricName][] = $metricValue;
+            if (is_string($vitalsScore) && $vitalsScore !== '') {
+                $metricScores[$metricName][] = $vitalsScore;
             }
         }
 
-        if ($waterfallSource === null) {
-            $parts = extract_waterfall_parts($event);
-            $hasUsefulPart = false;
-            foreach ($parts as $value) {
-                if ($value !== null && is_numeric($value) && $value >= 0) {
-                    $hasUsefulPart = true;
-                    break;
-                }
-            }
-
-            if ($hasUsefulPart) {
-                $waterfallSource = $parts;
-                $waterfallPage = path_only($decoded['page'] ?? $row['page'] ?? '');
-                $waterfallSid = $row['sid'] ?? null;
-            }
+        if (
+            $metricName === 'navigationTiming' &&
+            $pageTimingValue === null &&
+            $metricValue !== null
+        ) {
+            $pageTimingValue = $metricValue;
+            $pageTimingPage = $decoded['page'] ?? $row['page'] ?? '(no page)';
+            $pageTimingSid = $row['sid'] ?? null;
         }
     }
 }
@@ -276,31 +200,34 @@ $interactionValues = array_values($userInteractionCounts);
 $metricSummary = [];
 foreach ($metricBuckets as $metricName => $values) {
     $avg = count($values) ? array_sum($values) / count($values) : null;
+
+    $scoreCounts = [];
+    foreach ($metricScores[$metricName] as $score) {
+        if (!isset($scoreCounts[$score])) {
+            $scoreCounts[$score] = 0;
+        }
+        $scoreCounts[$score]++;
+    }
+
+    arsort($scoreCounts);
+    $dominantScore = count($scoreCounts) ? array_key_first($scoreCounts) : metric_rating($metricName, $avg);
+
     $metricSummary[$metricName] = [
         'average' => $avg,
-        'rating' => metric_rating($metricName, $avg),
+        'rating' => $dominantScore,
         'formatted' => format_metric($metricName, $avg),
         'samples' => count($values),
     ];
 }
 
-if ($waterfallSource === null) {
-    $waterfallSource = [
-        'DNS' => 0,
-        'TCP' => 0,
-        'SSL' => 0,
-        'TTFB' => 0,
-        'DOM' => 0,
-        'Load' => 0,
-    ];
-    $waterfallPage = '(no timing data)';
-    $waterfallSid = null;
+if ($pageTimingValue === null) {
+    $pageTimingValue = 0;
+    $pageTimingPage = '(no timing data)';
+    $pageTimingSid = null;
 }
 
-$waterfallLabels = array_keys($waterfallSource);
-$waterfallValues = array_map(function ($v) {
-    return $v === null ? 0 : (float)$v;
-}, array_values($waterfallSource));
+$pageTimingLabels = ['navigation timing'];
+$pageTimingValues = [$pageTimingValue];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -478,13 +405,14 @@ $waterfallValues = array_map(function ($v) {
       height: 360px;
     }
 
-    .waterfall-meta {
+    .chart-meta {
       margin-bottom: 14px;
       color: var(--muted);
       font-size: 0.95rem;
+      word-break: break-word;
     }
 
-    .waterfall-meta strong {
+    .chart-meta strong {
       color: var(--text);
     }
 
@@ -511,13 +439,11 @@ $waterfallValues = array_map(function ($v) {
 
     <section class="section">
       <h2 class="section-title">Performance Health Overview</h2>
-      <p class="section-subtitle">Average Core Web Vitals and performance measurements across stored performance events.</p>
+      <p class="section-subtitle">Average values pulled directly from logged perf events like <code>fcp</code>, <code>lcp</code>, <code>cls</code>, and <code>fid</code>.</p>
 
       <div class="scorecards">
         <?php foreach ($metricSummary as $metricName => $info): ?>
-          <?php
-            $badgeClass = str_replace(' ', '-', $info['rating']);
-          ?>
+          <?php $badgeClass = str_replace(' ', '-', $info['rating']); ?>
           <div class="scorecard">
             <div class="label"><?= htmlspecialchars($metricName) ?></div>
             <div class="value"><?= htmlspecialchars($info['formatted']) ?></div>
@@ -540,19 +466,19 @@ $waterfallValues = array_map(function ($v) {
       </div>
 
       <div class="chart-card">
-        <h2>Page Load Waterfall</h2>
-        <p>Breaks down one recent performance event into major load phases to make bottlenecks easier to spot.</p>
+        <h2>Page Timing Overview</h2>
+        <p>Shows one recent <code>navigationTiming</code> metric from the stored perf logs.</p>
 
-        <div class="waterfall-meta">
-          <strong>Page:</strong> <?= htmlspecialchars((string)$waterfallPage) ?>
-          <?php if ($waterfallSid): ?>
+        <div class="chart-meta">
+          <strong>Page:</strong> <?= htmlspecialchars((string)$pageTimingPage) ?>
+          <?php if ($pageTimingSid): ?>
             &nbsp;|&nbsp;
-            <strong>Session:</strong> <?= htmlspecialchars((string)$waterfallSid) ?>
+            <strong>Session:</strong> <?= htmlspecialchars((string)$pageTimingSid) ?>
           <?php endif; ?>
         </div>
 
         <div class="chart-wrap">
-          <canvas id="waterfallChart"></canvas>
+          <canvas id="pageTimingChart"></canvas>
         </div>
       </div>
     </div>
@@ -562,8 +488,8 @@ $waterfallValues = array_map(function ($v) {
     const interactionLabels = <?= json_encode($interactionLabels) ?>;
     const interactionValues = <?= json_encode($interactionValues) ?>;
 
-    const waterfallLabels = <?= json_encode($waterfallLabels) ?>;
-    const waterfallValues = <?= json_encode($waterfallValues) ?>;
+    const pageTimingLabels = <?= json_encode($pageTimingLabels) ?>;
+    const pageTimingValues = <?= json_encode($pageTimingValues) ?>;
 
     new Chart(document.getElementById('interactionChart'), {
       type: 'bar',
@@ -596,13 +522,13 @@ $waterfallValues = array_map(function ($v) {
       }
     });
 
-    new Chart(document.getElementById('waterfallChart'), {
+    new Chart(document.getElementById('pageTimingChart'), {
       type: 'bar',
       data: {
-        labels: waterfallLabels,
+        labels: pageTimingLabels,
         datasets: [{
-          label: 'Milliseconds',
-          data: waterfallValues,
+          label: 'Seconds',
+          data: pageTimingValues,
           borderWidth: 1
         }]
       },
@@ -620,7 +546,7 @@ $waterfallValues = array_map(function ($v) {
             beginAtZero: true,
             title: {
               display: true,
-              text: 'ms'
+              text: 'seconds'
             }
           }
         }
