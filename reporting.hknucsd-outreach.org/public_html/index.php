@@ -13,6 +13,7 @@ require_login();
   <p>Welcome, <?= htmlspecialchars($_SESSION['username']) ?>.</p>
   <p>This page is protected.</p>
   <a href="/report.php">View Data Table</a>
+  <a href="/charts.php">View Charts</a>
   <a href="/logout.php">Logout</a>
 </body>
 </html>

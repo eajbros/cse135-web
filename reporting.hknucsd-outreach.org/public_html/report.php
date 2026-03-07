@@ -195,6 +195,7 @@ function event_count($json) {
       </div>
       <div class="nav">
         <a href="/index.php">Dashboard</a>
+        <a href="/charts.php">Charts</a>
         <a href="/logout.php">Logout</a>
       </div>
     </div>
