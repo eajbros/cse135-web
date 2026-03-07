@@ -3,8 +3,35 @@ require_once __DIR__ . '/auth.php';
 require_login();
 require_once __DIR__ . '/db.php';
 
+function path_only($url) {
+    if (!$url) {
+        return '(no page)';
+    }
+
+    $path = parse_url($url, PHP_URL_PATH);
+
+    if ($path === null || $path === false || $path === '') {
+        return '/';
+    }
+
+    return $path;
+}
+
+function display_event_type($type) {
+    $map = [
+        'mousemove' => 'mouse move',
+        'idle_start' => 'idle start',
+        'idle_end' => 'idle end',
+        'performance_required' => 'performance required',
+        'mouseleave' => 'mouse leave',
+        'mouseenter' => 'mouse enter'
+    ];
+
+    return $map[$type] ?? $type;
+}
+
 /*
- * Chart 1: Top pages by number of beacon records
+ * Chart 1: Beacon records by page path
  */
 $stmt1 = $pdo->query("
     SELECT
@@ -18,7 +45,7 @@ $stmt1 = $pdo->query("
 $pageRows = $stmt1->fetchAll();
 
 /*
- * Chart 2 source data: event counts per beacon payload
+ * Chart source data
  */
 $stmt2 = $pdo->query("
     SELECT
@@ -27,18 +54,28 @@ $stmt2 = $pdo->query("
 ");
 $payloadRows = $stmt2->fetchAll();
 
-$pageLabels = [];
-$pageCounts = [];
+$pageCountsByPath = [];
 
 foreach ($pageRows as $row) {
-    $pageLabels[] = $row['page'] ?: '(no page)';
-    $pageCounts[] = (int)$row['beacon_count'];
+    $path = path_only($row['page'] ?? '');
+
+    if (!isset($pageCountsByPath[$path])) {
+        $pageCountsByPath[$path] = 0;
+    }
+
+    $pageCountsByPath[$path] += (int)$row['beacon_count'];
 }
+
+arsort($pageCountsByPath);
+$pageCountsByPath = array_slice($pageCountsByPath, 0, 10, true);
+
+$pageLabels = array_keys($pageCountsByPath);
+$pageCounts = array_values($pageCountsByPath);
 
 /*
  * Build:
  * - event count buckets
- * - event type counts
+ * - filtered user interaction event type counts
  */
 $eventBuckets = [
     '0' => 0,
@@ -79,6 +116,14 @@ foreach ($payloadRows as $row) {
 
     foreach ($events as $event) {
         $type = $event['type'] ?? '(unknown)';
+
+        // Remove performance telemetry from the user interaction chart
+        if ($type === 'perf') {
+            continue;
+        }
+
+        $type = display_event_type($type);
+
         if (!isset($eventTypeCounts[$type])) {
             $eventTypeCounts[$type] = 0;
         }
@@ -237,7 +282,7 @@ $eventTypeValues = array_values($eventTypeCounts);
 
     <div class="stats">
       <div class="stat-card">
-        <div class="stat-label">Tracked Pages</div>
+        <div class="stat-label">Tracked Page Paths</div>
         <div class="stat-value"><?= htmlspecialchars((string)count($pageLabels)) ?></div>
       </div>
       <div class="stat-card">
@@ -245,31 +290,31 @@ $eventTypeValues = array_values($eventTypeCounts);
         <div class="stat-value"><?= htmlspecialchars((string)count($payloadRows)) ?></div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Unique Event Types</div>
+        <div class="stat-label">User Interaction Event Types</div>
         <div class="stat-value"><?= htmlspecialchars((string)count($eventTypeLabels)) ?></div>
       </div>
     </div>
 
     <div class="charts-grid">
       <div class="chart-card">
-        <h2>Top Pages by Beacon Count</h2>
-        <p>Shows which pages generated the most stored beacon records.</p>
+        <h2>Beacon Records by Page</h2>
+        <p>Counts how many stored analytics payloads were submitted from each page path.</p>
         <div class="chart-wrap">
           <canvas id="pagesChart"></canvas>
         </div>
       </div>
 
       <div class="chart-card">
-        <h2>Event Count Distribution</h2>
-        <p>Groups beacon payloads by how many events were captured in each record.</p>
+        <h2>Events Per Payload Distribution</h2>
+        <p>Shows how many events were included in each stored payload.</p>
         <div class="chart-wrap">
           <canvas id="eventBucketChart"></canvas>
         </div>
       </div>
 
       <div class="chart-card">
-        <h2>Top Event Types</h2>
-        <p>Counts the most common event types found across all stored payloads.</p>
+        <h2>User Interaction Events</h2>
+        <p>Counts the most common non-performance interaction events across all stored payloads.</p>
         <div class="chart-wrap">
           <canvas id="eventTypeChart"></canvas>
         </div>
@@ -292,7 +337,7 @@ $eventTypeValues = array_values($eventTypeCounts);
       data: {
         labels: pageLabels,
         datasets: [{
-          label: 'Beacon Count',
+          label: 'Beacon Records',
           data: pageCounts,
           borderWidth: 1
         }]
@@ -308,11 +353,17 @@ $eventTypeValues = array_values($eventTypeCounts);
         scales: {
           x: {
             ticks: {
-              autoSkip: false
+              autoSkip: false,
+              maxRotation: 35,
+              minRotation: 20
             }
           },
           y: {
-            beginAtZero: true
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Records'
+            }
           }
         }
       }
@@ -323,14 +374,19 @@ $eventTypeValues = array_values($eventTypeCounts);
       data: {
         labels: bucketLabels,
         datasets: [{
-          label: 'Beacon Rows',
+          label: 'Payload Count',
           data: bucketCounts,
           borderWidth: 1
         }]
       },
       options: {
         responsive: true,
-        maintainAspectRatio: false
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top'
+          }
+        }
       }
     });
 
@@ -339,7 +395,7 @@ $eventTypeValues = array_values($eventTypeCounts);
       data: {
         labels: eventTypeLabels,
         datasets: [{
-          label: 'Event Type Count',
+          label: 'Interaction Event Count',
           data: eventTypeValues,
           borderWidth: 1
         }]
@@ -355,11 +411,17 @@ $eventTypeValues = array_values($eventTypeCounts);
         scales: {
           x: {
             ticks: {
-              autoSkip: false
+              autoSkip: false,
+              maxRotation: 35,
+              minRotation: 20
             }
           },
           y: {
-            beginAtZero: true
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Events'
+            }
           }
         }
       }
