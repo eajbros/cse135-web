@@ -3,49 +3,43 @@ require_once __DIR__ . '/auth.php';
 require_login();
 require_once __DIR__ . '/db.php';
 
-function display_event_type($type) {
-    $map = [
+function display_event_type(string $type): string {
+    $labels = [
         'mousemove' => 'mouse move',
-        'mouseleave' => 'mouse leave',
         'mouseenter' => 'mouse enter',
+        'mouseleave' => 'mouse leave',
         'idle_start' => 'idle start',
         'idle_end' => 'idle end',
-        'scroll' => 'scroll',
-        'click' => 'click',
-        'enter' => 'enter',
-        'leave' => 'leave',
         'keydown' => 'key down',
     ];
 
-    return $map[$type] ?? $type;
+    return $labels[$type] ?? $type;
 }
 
-function normalize_metric_name($name) {
-    $name = strtolower(trim((string)$name));
+function normalize_metric_name(?string $name): ?string {
+    if ($name === null) {
+        return null;
+    }
+
+    $key = strtolower(trim($name));
 
     $map = [
         'fcp' => 'FCP',
-        'fp' => 'FP',
         'fid' => 'FID',
         'lcp' => 'LCP',
         'lcpfinal' => 'LCP',
         'cls' => 'CLS',
         'tbt' => 'TBT',
         'navigationtiming' => 'navigationTiming',
-        'networkinformation' => 'networkInformation',
-        'storageestimate' => 'storageEstimate',
-        'initialbrowserdata' => 'initialBrowserData',
     ];
 
-    return $map[$name] ?? $name;
+    return $map[$key] ?? null;
 }
 
-function metric_rating(string $metric, $value): string {
-    if ($value === null || !is_numeric($value)) {
+function metric_rating(string $metric, ?float $value): string {
+    if ($value === null) {
         return 'no data';
     }
-
-    $value = (float)$value;
 
     switch ($metric) {
         case 'FCP':
@@ -78,12 +72,10 @@ function metric_rating(string $metric, $value): string {
     }
 }
 
-function format_metric(string $metric, $value): string {
-    if ($value === null || !is_numeric($value)) {
+function format_metric(string $metric, ?float $value): string {
+    if ($value === null) {
         return '—';
     }
-
-    $value = (float)$value;
 
     if ($metric === 'CLS') {
         return number_format($value, 3);
@@ -93,27 +85,15 @@ function format_metric(string $metric, $value): string {
 }
 
 $stmt = $pdo->query("
-    SELECT
-        id,
-        received_at,
-        sid,
-        page,
-        payload
+    SELECT payload
     FROM beacons_raw
     ORDER BY received_at DESC
 ");
 
-$rows = $stmt->fetchAll();
+$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-/*
- * 1) User interaction events
- */
-$userInteractionCounts = [];
-
-/*
- * 2) Performance overview
- */
-$metricBuckets = [
+$interactionCounts = [];
+$metricValues = [
     'FCP' => [],
     'LCP' => [],
     'CLS' => [],
@@ -127,22 +107,17 @@ $metricScores = [
     'TBT' => [],
     'FID' => [],
 ];
+$navigationTimings = [];
 
-/*
- * 3) Page timing overview
- * We use the most recent navigationTiming perf event.
- */
-$pageTimingValue = null;
-$pageTimingPage = null;
-$pageTimingSid = null;
+$ignoredInteractionTypes = ['perf', 'static', 'performance_required'];
 
 foreach ($rows as $row) {
-    $decoded = json_decode($row['payload'], true);
-    if (!is_array($decoded)) {
+    $payload = json_decode($row['payload'], true);
+    if (!is_array($payload)) {
         continue;
     }
 
-    $events = $decoded['events'] ?? [];
+    $events = $payload['events'] ?? [];
     if (!is_array($events)) {
         continue;
     }
@@ -151,83 +126,89 @@ foreach ($rows as $row) {
         $type = $event['type'] ?? '(unknown)';
 
         if ($type !== 'perf') {
-            $ignore = ['static', 'performance_required'];
-            if (in_array($type, $ignore, true)) {
+            if (in_array($type, $ignoredInteractionTypes, true)) {
                 continue;
             }
 
             $label = display_event_type($type);
-            if (!isset($userInteractionCounts[$label])) {
-                $userInteractionCounts[$label] = 0;
-            }
-            $userInteractionCounts[$label]++;
+            $interactionCounts[$label] = ($interactionCounts[$label] ?? 0) + 1;
             continue;
         }
 
         $perf = $event['data'] ?? [];
-        $metricNameRaw = $perf['metricName'] ?? null;
-        $metricName = normalize_metric_name($metricNameRaw);
-        $metricValueRaw = $perf['data'] ?? null;
-        $vitalsScore = $perf['vitalsScore'] ?? null;
-
-        $metricValue = is_numeric($metricValueRaw) ? (float)$metricValueRaw : null;
-
-        if (isset($metricBuckets[$metricName]) && $metricValue !== null) {
-            $metricBuckets[$metricName][] = $metricValue;
-            if (is_string($vitalsScore) && $vitalsScore !== '') {
-                $metricScores[$metricName][] = $vitalsScore;
-            }
+        if (!is_array($perf)) {
+            continue;
         }
 
-        if (
-            $metricName === 'navigationTiming' &&
-            $pageTimingValue === null &&
-            $metricValue !== null
-        ) {
-            $pageTimingValue = $metricValue;
-            $pageTimingPage = $decoded['page'] ?? $row['page'] ?? '(no page)';
-            $pageTimingSid = $row['sid'] ?? null;
+        $metricName = normalize_metric_name($perf['metricName'] ?? null);
+        $rawValue = $perf['data'] ?? null;
+        $score = $perf['vitalsScore'] ?? null;
+
+        $value = is_numeric($rawValue) ? (float)$rawValue : null;
+
+        if ($metricName === 'navigationTiming' && $value !== null) {
+            $navigationTimings[] = $value;
+        }
+
+        if ($metricName !== null && array_key_exists($metricName, $metricValues) && $value !== null) {
+            $metricValues[$metricName][] = $value;
+
+            if (is_string($score) && $score !== '') {
+                $metricScores[$metricName][] = $score;
+            }
         }
     }
 }
 
-arsort($userInteractionCounts);
-$userInteractionCounts = array_slice($userInteractionCounts, 0, 10, true);
+arsort($interactionCounts);
+$interactionCounts = array_slice($interactionCounts, 0, 10, true);
 
-$interactionLabels = array_keys($userInteractionCounts);
-$interactionValues = array_values($userInteractionCounts);
+$interactionLabels = array_keys($interactionCounts);
+$interactionData = array_values($interactionCounts);
 
 $metricSummary = [];
-foreach ($metricBuckets as $metricName => $values) {
-    $avg = count($values) ? array_sum($values) / count($values) : null;
+foreach ($metricValues as $metric => $values) {
+    $average = count($values) ? array_sum($values) / count($values) : null;
 
     $scoreCounts = [];
-    foreach ($metricScores[$metricName] as $score) {
-        if (!isset($scoreCounts[$score])) {
-            $scoreCounts[$score] = 0;
-        }
-        $scoreCounts[$score]++;
+    foreach ($metricScores[$metric] as $score) {
+        $scoreCounts[$score] = ($scoreCounts[$score] ?? 0) + 1;
     }
 
     arsort($scoreCounts);
-    $dominantScore = count($scoreCounts) ? array_key_first($scoreCounts) : metric_rating($metricName, $avg);
+    $dominantScore = count($scoreCounts) ? array_key_first($scoreCounts) : metric_rating($metric, $average);
 
-    $metricSummary[$metricName] = [
-        'average' => $avg,
+    $metricSummary[$metric] = [
+        'formatted' => format_metric($metric, $average),
         'rating' => $dominantScore,
-        'formatted' => format_metric($metricName, $avg),
         'samples' => count($values),
     ];
 }
 
-if ($pageTimingValue === null) {
-    $pageTimingValue = 0;
-    $pageTimingPage = '(no timing data)';
-    $pageTimingSid = null;
+$navHistogram = [
+    '0.00–0.10 s' => 0,
+    '0.10–0.20 s' => 0,
+    '0.20–0.30 s' => 0,
+    '0.30–0.40 s' => 0,
+    '0.40+ s' => 0,
+];
+
+foreach ($navigationTimings as $value) {
+    if ($value < 0.10) {
+        $navHistogram['0.00–0.10 s']++;
+    } elseif ($value < 0.20) {
+        $navHistogram['0.10–0.20 s']++;
+    } elseif ($value < 0.30) {
+        $navHistogram['0.20–0.30 s']++;
+    } elseif ($value < 0.40) {
+        $navHistogram['0.30–0.40 s']++;
+    } else {
+        $navHistogram['0.40+ s']++;
+    }
 }
 
-$pageTimingLabels = ['navigation timing'];
-$pageTimingValues = [$pageTimingValue];
+$navLabels = array_keys($navHistogram);
+$navData = array_values($navHistogram);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -274,7 +255,7 @@ $pageTimingValues = [$pageTimingValue];
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
       flex-wrap: wrap;
     }
 
@@ -301,7 +282,7 @@ $pageTimingValues = [$pageTimingValue];
     }
 
     .section {
-      margin-bottom: 22px;
+      margin-bottom: 24px;
     }
 
     .section-title {
@@ -318,7 +299,6 @@ $pageTimingValues = [$pageTimingValue];
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 16px;
-      margin-bottom: 20px;
     }
 
     .scorecard,
@@ -400,20 +380,15 @@ $pageTimingValues = [$pageTimingValue];
       font-size: 0.95rem;
     }
 
-    .chart-wrap {
-      position: relative;
-      height: 360px;
-    }
-
     .chart-meta {
       margin-bottom: 14px;
       color: var(--muted);
       font-size: 0.95rem;
-      word-break: break-word;
     }
 
-    .chart-meta strong {
-      color: var(--text);
+    .chart-wrap {
+      position: relative;
+      height: 360px;
     }
 
     @media (max-width: 640px) {
@@ -439,13 +414,13 @@ $pageTimingValues = [$pageTimingValue];
 
     <section class="section">
       <h2 class="section-title">Performance Health Overview</h2>
-      <p class="section-subtitle">Average values pulled directly from logged perf events like <code>fcp</code>, <code>lcp</code>, <code>cls</code>, and <code>fid</code>.</p>
+      <p class="section-subtitle">Average values pulled directly from logged performance events such as FCP, LCP, CLS, and FID.</p>
 
       <div class="scorecards">
-        <?php foreach ($metricSummary as $metricName => $info): ?>
+        <?php foreach ($metricSummary as $metric => $info): ?>
           <?php $badgeClass = str_replace(' ', '-', $info['rating']); ?>
           <div class="scorecard">
-            <div class="label"><?= htmlspecialchars($metricName) ?></div>
+            <div class="label"><?= htmlspecialchars($metric) ?></div>
             <div class="value"><?= htmlspecialchars($info['formatted']) ?></div>
             <span class="badge <?= htmlspecialchars($badgeClass) ?>">
               <?= htmlspecialchars($info['rating']) ?>
@@ -466,19 +441,13 @@ $pageTimingValues = [$pageTimingValue];
       </div>
 
       <div class="chart-card">
-        <h2>Page Timing Overview</h2>
-        <p>Shows one recent <code>navigationTiming</code> metric from the stored perf logs.</p>
-
+        <h2>Navigation Timing Distribution</h2>
+        <p>Shows how all recorded <code>navigationTiming</code> values are distributed across timing ranges.</p>
         <div class="chart-meta">
-          <strong>Page:</strong> <?= htmlspecialchars((string)$pageTimingPage) ?>
-          <?php if ($pageTimingSid): ?>
-            &nbsp;|&nbsp;
-            <strong>Session:</strong> <?= htmlspecialchars((string)$pageTimingSid) ?>
-          <?php endif; ?>
+          <strong>Samples:</strong> <?= htmlspecialchars((string)count($navigationTimings)) ?>
         </div>
-
         <div class="chart-wrap">
-          <canvas id="pageTimingChart"></canvas>
+          <canvas id="navHistogramChart"></canvas>
         </div>
       </div>
     </div>
@@ -486,10 +455,10 @@ $pageTimingValues = [$pageTimingValue];
 
   <script>
     const interactionLabels = <?= json_encode($interactionLabels) ?>;
-    const interactionValues = <?= json_encode($interactionValues) ?>;
+    const interactionData = <?= json_encode($interactionData) ?>;
 
-    const pageTimingLabels = <?= json_encode($pageTimingLabels) ?>;
-    const pageTimingValues = <?= json_encode($pageTimingValues) ?>;
+    const navLabels = <?= json_encode($navLabels) ?>;
+    const navData = <?= json_encode($navData) ?>;
 
     new Chart(document.getElementById('interactionChart'), {
       type: 'bar',
@@ -497,7 +466,7 @@ $pageTimingValues = [$pageTimingValue];
         labels: interactionLabels,
         datasets: [{
           label: 'Interaction Event Count',
-          data: interactionValues,
+          data: interactionData,
           borderWidth: 1
         }]
       },
@@ -522,18 +491,17 @@ $pageTimingValues = [$pageTimingValue];
       }
     });
 
-    new Chart(document.getElementById('pageTimingChart'), {
+    new Chart(document.getElementById('navHistogramChart'), {
       type: 'bar',
       data: {
-        labels: pageTimingLabels,
+        labels: navLabels,
         datasets: [{
-          label: 'Seconds',
-          data: pageTimingValues,
+          label: 'Navigation Timing Samples',
+          data: navData,
           borderWidth: 1
         }]
       },
       options: {
-        indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
@@ -543,10 +511,16 @@ $pageTimingValues = [$pageTimingValue];
         },
         scales: {
           x: {
+            title: {
+              display: true,
+              text: 'Timing Range'
+            }
+          },
+          y: {
             beginAtZero: true,
             title: {
               display: true,
-              text: 'seconds'
+              text: 'Sample Count'
             }
           }
         }
