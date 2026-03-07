@@ -23,7 +23,7 @@ $pageRows = $stmt1->fetchAll();
 $stmt2 = $pdo->query("
     SELECT
         payload
-    FROM bracons_raw
+    FROM beacons_raw
 ");
 $payloadRows = $stmt2->fetchAll();
 
