@@ -1,73 +1,79 @@
 <?php
-require_once 'auth.php';
+require_once __DIR__ . '/auth.php';
 require_login();
-require_once 'db.php';
+require_once __DIR__ . '/db.php';
 
 $stmt = $pdo->query("
-    SELECT
-        b.sid,
-        b.sent_at,
-        e.type,
-        e.ts,
-        e.page
-    FROM events e
-    JOIN beacons b ON e.beacon_id = b.id
-    ORDER BY e.ts DESC
+    SELECT id, received_at, sid, page, sent_at, payload
+    FROM beacons
+    ORDER BY received_at DESC
     LIMIT 100
 ");
 
 $rows = $stmt->fetchAll();
 ?>
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Analytics Events</title>
-<style>
-table {
-  border-collapse: collapse;
-  width: 100%;
-}
-th, td {
-  border: 1px solid #ccc;
-  padding: 8px;
-}
-th {
-  background: #f5f5f5;
-}
-</style>
+  <meta charset="UTF-8">
+  <title>Beacon Reports</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f4f4f4;
+    }
+    td pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+    }
+    a {
+      text-decoration: none;
+    }
+  </style>
 </head>
 <body>
+  <h1>Collected Beacon Data</h1>
+  <p><a href="/index.php">Dashboard</a> | <a href="/logout.php">Logout</a></p>
 
-<h1>Collected Events</h1>
-
-<a href="/logout.php">Logout</a>
-
-<table>
-<thead>
-<tr>
-<th>Session</th>
-<th>Sent At</th>
-<th>Event Type</th>
-<th>Timestamp</th>
-<th>Page</th>
-</tr>
-</thead>
-
-<tbody>
-
-<?php foreach ($rows as $r): ?>
-<tr>
-<td><?= htmlspecialchars($r['sid']) ?></td>
-<td><?= htmlspecialchars($r['sent_at']) ?></td>
-<td><?= htmlspecialchars($r['type']) ?></td>
-<td><?= htmlspecialchars($r['ts']) ?></td>
-<td><?= htmlspecialchars($r['page']) ?></td>
-</tr>
-<?php endforeach; ?>
-
-</tbody>
-</table>
-
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Received At</th>
+        <th>Session ID</th>
+        <th>Page</th>
+        <th>Sent At</th>
+        <th>Payload</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php foreach ($rows as $r): ?>
+        <tr>
+          <td><?= htmlspecialchars((string)$r['id']) ?></td>
+          <td><?= htmlspecialchars((string)$r['received_at']) ?></td>
+          <td><?= htmlspecialchars((string)$r['sid']) ?></td>
+          <td><?= htmlspecialchars((string)($r['page'] ?? '')) ?></td>
+          <td><?= htmlspecialchars((string)($r['sent_at'] ?? '')) ?></td>
+          <td><pre><?= htmlspecialchars(json_encode(json_decode($r['payload'], true), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) ?></pre></td>
+        </tr>
+      <?php endforeach; ?>
+    </tbody>
+  </table>
 </body>
 </html>
