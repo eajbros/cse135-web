@@ -9,136 +9,298 @@ function path_only($url) {
     }
 
     $path = parse_url($url, PHP_URL_PATH);
-
     if ($path === null || $path === false || $path === '') {
         return '/';
     }
-
     return $path;
 }
 
 function display_event_type($type) {
     $map = [
         'mousemove' => 'mouse move',
+        'mouseleave' => 'mouse leave',
+        'mouseenter' => 'mouse enter',
         'idle_start' => 'idle start',
         'idle_end' => 'idle end',
-        'performance_required' => 'performance required',
-        'mouseleave' => 'mouse leave',
-        'mouseenter' => 'mouse enter'
+        'scroll' => 'scroll',
+        'click' => 'click',
+        'enter' => 'enter',
+        'leave' => 'leave',
     ];
 
     return $map[$type] ?? $type;
 }
 
-/*
- * Chart 1: Beacon records by page path
- */
-$stmt1 = $pdo->query("
-    SELECT
-        page,
-        COUNT(*) AS beacon_count
-    FROM beacons_raw
-    GROUP BY page
-    ORDER BY beacon_count DESC
-    LIMIT 10
-");
-$pageRows = $stmt1->fetchAll();
-
-/*
- * Chart source data
- */
-$stmt2 = $pdo->query("
-    SELECT
-        payload
-    FROM beacons_raw
-");
-$payloadRows = $stmt2->fetchAll();
-
-$pageCountsByPath = [];
-
-foreach ($pageRows as $row) {
-    $path = path_only($row['page'] ?? '');
-
-    if (!isset($pageCountsByPath[$path])) {
-        $pageCountsByPath[$path] = 0;
+function metric_rating(string $metric, $value): string {
+    if ($value === null || !is_numeric($value)) {
+        return 'no data';
     }
 
-    $pageCountsByPath[$path] += (int)$row['beacon_count'];
+    $value = (float)$value;
+
+    switch ($metric) {
+        case 'FCP':
+            if ($value <= 1800) return 'good';
+            if ($value <= 3000) return 'needs improvement';
+            return 'poor';
+
+        case 'LCP':
+            if ($value <= 2500) return 'good';
+            if ($value <= 4000) return 'needs improvement';
+            return 'poor';
+
+        case 'CLS':
+            if ($value <= 0.1) return 'good';
+            if ($value <= 0.25) return 'needs improvement';
+            return 'poor';
+
+        case 'TBT':
+            if ($value <= 200) return 'good';
+            if ($value <= 600) return 'needs improvement';
+            return 'poor';
+
+        case 'FID':
+            if ($value <= 100) return 'good';
+            if ($value <= 300) return 'needs improvement';
+            return 'poor';
+
+        default:
+            return 'no data';
+    }
 }
 
-arsort($pageCountsByPath);
-$pageCountsByPath = array_slice($pageCountsByPath, 0, 10, true);
+function format_metric(string $metric, $value): string {
+    if ($value === null || !is_numeric($value)) {
+        return '—';
+    }
 
-$pageLabels = array_keys($pageCountsByPath);
-$pageCounts = array_values($pageCountsByPath);
+    $value = (float)$value;
+
+    if ($metric === 'CLS') {
+        return number_format($value, 3);
+    }
+
+    if ($metric === 'FCP' || $metric === 'LCP') {
+        return number_format($value / 1000, 2) . ' s';
+    }
+
+    return number_format($value, 0) . ' ms';
+}
+
+function first_numeric_value(array $sources, array $keys) {
+    foreach ($sources as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $source) && is_numeric($source[$key])) {
+                return (float)$source[$key];
+            }
+        }
+    }
+    return null;
+}
+
+function extract_perf_metrics(array $event): array {
+    $data = $event['data'] ?? [];
+    $props = $data['eventProperties'] ?? [];
+    $nav = $data['navigatorInformation'] ?? [];
+    $rawData = $data['data'] ?? [];
+
+    $measureName = $data['metricName'] ?? null;
+    $value = null;
+
+    if (is_numeric($rawData)) {
+        $value = (float)$rawData;
+    } elseif (is_array($rawData)) {
+        $value = first_numeric_value([$rawData], ['value', 'metricValue', 'delta']);
+    }
+
+    $metrics = [
+        'FCP' => null,
+        'LCP' => null,
+        'CLS' => null,
+        'TBT' => null,
+        'FID' => null,
+    ];
+
+    if (is_string($measureName) && array_key_exists($measureName, $metrics) && $value !== null) {
+        $metrics[$measureName] = $value;
+    }
+
+    $metrics['FCP'] = $metrics['FCP'] ?? first_numeric_value(
+        [$data, $props, $rawData, $nav],
+        ['FCP', 'fcp', 'firstContentfulPaint', 'first_contentful_paint']
+    );
+
+    $metrics['LCP'] = $metrics['LCP'] ?? first_numeric_value(
+        [$data, $props, $rawData, $nav],
+        ['LCP', 'lcp', 'largestContentfulPaint', 'largest_contentful_paint']
+    );
+
+    $metrics['CLS'] = $metrics['CLS'] ?? first_numeric_value(
+        [$data, $props, $rawData, $nav],
+        ['CLS', 'cls', 'cumulativeLayoutShift', 'cumulative_layout_shift']
+    );
+
+    $metrics['TBT'] = $metrics['TBT'] ?? first_numeric_value(
+        [$data, $props, $rawData, $nav],
+        ['TBT', 'tbt', 'totalBlockingTime', 'total_blocking_time']
+    );
+
+    $metrics['FID'] = $metrics['FID'] ?? first_numeric_value(
+        [$data, $props, $rawData, $nav],
+        ['FID', 'fid', 'firstInputDelay', 'first_input_delay']
+    );
+
+    return $metrics;
+}
+
+function extract_waterfall_parts(array $event): array {
+    $data = $event['data'] ?? [];
+    $props = $data['eventProperties'] ?? [];
+    $nav = $data['navigatorInformation'] ?? [];
+    $rawData = $data['data'] ?? [];
+
+    $sources = [$props, $rawData, $nav, $data];
+
+    $dns = first_numeric_value($sources, ['dns', 'dnsLookup', 'dns_lookup']);
+    $tcp = first_numeric_value($sources, ['tcp', 'connect', 'tcpConnect', 'tcp_connect']);
+    $ssl = first_numeric_value($sources, ['ssl', 'tls', 'sslHandshake', 'ssl_handshake']);
+    $ttfb = first_numeric_value($sources, ['ttfb', 'TTFB', 'timeToFirstByte', 'time_to_first_byte']);
+    $dom = first_numeric_value($sources, ['domLoad', 'domInteractive', 'domContentLoaded', 'dom_content_loaded']);
+    $load = first_numeric_value($sources, ['loadEvent', 'loadComplete', 'load', 'load_complete']);
+
+    return [
+        'DNS' => $dns,
+        'TCP' => $tcp,
+        'SSL' => $ssl,
+        'TTFB' => $ttfb,
+        'DOM' => $dom,
+        'Load' => $load,
+    ];
+}
+
+$stmt = $pdo->query("
+    SELECT
+        id,
+        received_at,
+        sid,
+        page,
+        payload
+    FROM beacons_raw
+    ORDER BY received_at DESC
+");
+
+$rows = $stmt->fetchAll();
 
 /*
- * Build:
- * - event count buckets
- * - filtered user interaction event type counts
+ * 1) User Interaction Events
  */
-$eventBuckets = [
-    '0' => 0,
-    '1' => 0,
-    '2-3' => 0,
-    '4-5' => 0,
-    '6+' => 0
+$userInteractionCounts = [];
+
+/*
+ * 2) Performance Health Overview
+ */
+$metricBuckets = [
+    'FCP' => [],
+    'LCP' => [],
+    'CLS' => [],
+    'TBT' => [],
+    'FID' => [],
 ];
 
-$eventTypeCounts = [];
+/*
+ * 3) Page Load Waterfall
+ * Use the most recent perf event that contains at least one useful timing component.
+ */
+$waterfallSource = null;
+$waterfallPage = null;
+$waterfallSid = null;
 
-foreach ($payloadRows as $row) {
+foreach ($rows as $row) {
     $decoded = json_decode($row['payload'], true);
-
     if (!is_array($decoded)) {
-        $eventBuckets['0']++;
         continue;
     }
 
     $events = $decoded['events'] ?? [];
     if (!is_array($events)) {
-        $events = [];
-    }
-
-    $count = count($events);
-
-    if ($count === 0) {
-        $eventBuckets['0']++;
-    } elseif ($count === 1) {
-        $eventBuckets['1']++;
-    } elseif ($count <= 3) {
-        $eventBuckets['2-3']++;
-    } elseif ($count <= 5) {
-        $eventBuckets['4-5']++;
-    } else {
-        $eventBuckets['6+']++;
+        continue;
     }
 
     foreach ($events as $event) {
         $type = $event['type'] ?? '(unknown)';
 
-        // Remove performance telemetry from the user interaction chart
-        if ($type === 'perf') {
+        if ($type !== 'perf') {
+            $label = display_event_type($type);
+            if (!isset($userInteractionCounts[$label])) {
+                $userInteractionCounts[$label] = 0;
+            }
+            $userInteractionCounts[$label]++;
             continue;
         }
 
-        $type = display_event_type($type);
-
-        if (!isset($eventTypeCounts[$type])) {
-            $eventTypeCounts[$type] = 0;
+        $perfMetrics = extract_perf_metrics($event);
+        foreach ($perfMetrics as $metricName => $metricValue) {
+            if ($metricValue !== null) {
+                $metricBuckets[$metricName][] = $metricValue;
+            }
         }
-        $eventTypeCounts[$type]++;
+
+        if ($waterfallSource === null) {
+            $parts = extract_waterfall_parts($event);
+            $hasUsefulPart = false;
+            foreach ($parts as $value) {
+                if ($value !== null && is_numeric($value) && $value >= 0) {
+                    $hasUsefulPart = true;
+                    break;
+                }
+            }
+
+            if ($hasUsefulPart) {
+                $waterfallSource = $parts;
+                $waterfallPage = path_only($decoded['page'] ?? $row['page'] ?? '');
+                $waterfallSid = $row['sid'] ?? null;
+            }
+        }
     }
 }
 
-arsort($eventTypeCounts);
-$eventTypeCounts = array_slice($eventTypeCounts, 0, 10, true);
+arsort($userInteractionCounts);
+$userInteractionCounts = array_slice($userInteractionCounts, 0, 10, true);
 
-$bucketLabels = array_keys($eventBuckets);
-$bucketCounts = array_values($eventBuckets);
+$interactionLabels = array_keys($userInteractionCounts);
+$interactionValues = array_values($userInteractionCounts);
 
-$eventTypeLabels = array_keys($eventTypeCounts);
-$eventTypeValues = array_values($eventTypeCounts);
+$metricSummary = [];
+foreach ($metricBuckets as $metricName => $values) {
+    $avg = count($values) ? array_sum($values) / count($values) : null;
+    $metricSummary[$metricName] = [
+        'average' => $avg,
+        'rating' => metric_rating($metricName, $avg),
+        'formatted' => format_metric($metricName, $avg),
+        'samples' => count($values),
+    ];
+}
+
+if ($waterfallSource === null) {
+    $waterfallSource = [
+        'DNS' => 0,
+        'TCP' => 0,
+        'SSL' => 0,
+        'TTFB' => 0,
+        'DOM' => 0,
+        'Load' => 0,
+    ];
+    $waterfallPage = '(no timing data)';
+    $waterfallSid = null;
+}
+
+$waterfallLabels = array_keys($waterfallSource);
+$waterfallValues = array_map(function ($v) {
+    return $v === null ? 0 : (float)$v;
+}, array_values($waterfallSource));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -155,6 +317,14 @@ $eventTypeValues = array_values($eventTypeCounts);
       --muted: #6b7280;
       --border: #e5e7eb;
       --accent: #2563eb;
+      --good-bg: #ecfdf3;
+      --good-text: #047857;
+      --warn-bg: #fff7ed;
+      --warn-text: #c2410c;
+      --bad-bg: #fef2f2;
+      --bad-text: #b91c1c;
+      --nodata-bg: #f3f4f6;
+      --nodata-text: #4b5563;
     }
 
     * { box-sizing: border-box; }
@@ -203,14 +373,28 @@ $eventTypeValues = array_values($eventTypeCounts);
       font-weight: 600;
     }
 
-    .stats {
+    .section {
+      margin-bottom: 22px;
+    }
+
+    .section-title {
+      margin: 0 0 8px;
+      font-size: 1.35rem;
+    }
+
+    .section-subtitle {
+      margin: 0 0 16px;
+      color: var(--muted);
+    }
+
+    .scorecards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 16px;
       margin-bottom: 20px;
     }
 
-    .stat-card,
+    .scorecard,
     .chart-card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -218,19 +402,54 @@ $eventTypeValues = array_values($eventTypeCounts);
       box-shadow: 0 8px 24px rgba(0,0,0,0.05);
     }
 
-    .stat-card {
+    .scorecard {
       padding: 18px 20px;
     }
 
-    .stat-label {
+    .scorecard .label {
       font-size: 0.95rem;
       color: var(--muted);
       margin-bottom: 8px;
     }
 
-    .stat-value {
+    .scorecard .value {
       font-size: 1.8rem;
       font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .badge.good {
+      background: var(--good-bg);
+      color: var(--good-text);
+    }
+
+    .badge.needs-improvement {
+      background: var(--warn-bg);
+      color: var(--warn-text);
+    }
+
+    .badge.poor {
+      background: var(--bad-bg);
+      color: var(--bad-text);
+    }
+
+    .badge.no-data {
+      background: var(--nodata-bg);
+      color: var(--nodata-text);
+    }
+
+    .samples {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: var(--muted);
     }
 
     .charts-grid {
@@ -259,6 +478,16 @@ $eventTypeValues = array_values($eventTypeCounts);
       height: 360px;
     }
 
+    .waterfall-meta {
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .waterfall-meta strong {
+      color: var(--text);
+    }
+
     @media (max-width: 640px) {
       .chart-wrap {
         height: 300px;
@@ -271,7 +500,7 @@ $eventTypeValues = array_values($eventTypeCounts);
     <div class="topbar">
       <div>
         <h1>Analytics Charts</h1>
-        <p class="subtitle">Visual summaries of collected beacon and event data</p>
+        <p class="subtitle">Visual summaries of collected interaction and performance data</p>
       </div>
       <div class="nav">
         <a href="/index.php">Dashboard</a>
@@ -280,127 +509,74 @@ $eventTypeValues = array_values($eventTypeCounts);
       </div>
     </div>
 
-    <div class="stats">
-      <div class="stat-card">
-        <div class="stat-label">Tracked Page Paths</div>
-        <div class="stat-value"><?= htmlspecialchars((string)count($pageLabels)) ?></div>
+    <section class="section">
+      <h2 class="section-title">Performance Health Overview</h2>
+      <p class="section-subtitle">Average Core Web Vitals and performance measurements across stored performance events.</p>
+
+      <div class="scorecards">
+        <?php foreach ($metricSummary as $metricName => $info): ?>
+          <?php
+            $badgeClass = str_replace(' ', '-', $info['rating']);
+          ?>
+          <div class="scorecard">
+            <div class="label"><?= htmlspecialchars($metricName) ?></div>
+            <div class="value"><?= htmlspecialchars($info['formatted']) ?></div>
+            <span class="badge <?= htmlspecialchars($badgeClass) ?>">
+              <?= htmlspecialchars($info['rating']) ?>
+            </span>
+            <div class="samples"><?= htmlspecialchars((string)$info['samples']) ?> sample(s)</div>
+          </div>
+        <?php endforeach; ?>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Beacon Records</div>
-        <div class="stat-value"><?= htmlspecialchars((string)count($payloadRows)) ?></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">User Interaction Event Types</div>
-        <div class="stat-value"><?= htmlspecialchars((string)count($eventTypeLabels)) ?></div>
-      </div>
-    </div>
+    </section>
 
     <div class="charts-grid">
-      <div class="chart-card">
-        <h2>Beacon Records by Page</h2>
-        <p>Counts how many stored analytics payloads were submitted from each page path.</p>
-        <div class="chart-wrap">
-          <canvas id="pagesChart"></canvas>
-        </div>
-      </div>
-
-      <div class="chart-card">
-        <h2>Events Per Payload Distribution</h2>
-        <p>Shows how many events were included in each stored payload.</p>
-        <div class="chart-wrap">
-          <canvas id="eventBucketChart"></canvas>
-        </div>
-      </div>
-
       <div class="chart-card">
         <h2>User Interaction Events</h2>
         <p>Counts the most common non-performance interaction events across all stored payloads.</p>
         <div class="chart-wrap">
-          <canvas id="eventTypeChart"></canvas>
+          <canvas id="interactionChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h2>Page Load Waterfall</h2>
+        <p>Breaks down one recent performance event into major load phases to make bottlenecks easier to spot.</p>
+
+        <div class="waterfall-meta">
+          <strong>Page:</strong> <?= htmlspecialchars((string)$waterfallPage) ?>
+          <?php if ($waterfallSid): ?>
+            &nbsp;|&nbsp;
+            <strong>Session:</strong> <?= htmlspecialchars((string)$waterfallSid) ?>
+          <?php endif; ?>
+        </div>
+
+        <div class="chart-wrap">
+          <canvas id="waterfallChart"></canvas>
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    const pageLabels = <?= json_encode($pageLabels) ?>;
-    const pageCounts = <?= json_encode($pageCounts) ?>;
+    const interactionLabels = <?= json_encode($interactionLabels) ?>;
+    const interactionValues = <?= json_encode($interactionValues) ?>;
 
-    const bucketLabels = <?= json_encode($bucketLabels) ?>;
-    const bucketCounts = <?= json_encode($bucketCounts) ?>;
+    const waterfallLabels = <?= json_encode($waterfallLabels) ?>;
+    const waterfallValues = <?= json_encode($waterfallValues) ?>;
 
-    const eventTypeLabels = <?= json_encode($eventTypeLabels) ?>;
-    const eventTypeValues = <?= json_encode($eventTypeValues) ?>;
-
-    new Chart(document.getElementById('pagesChart'), {
+    new Chart(document.getElementById('interactionChart'), {
       type: 'bar',
       data: {
-        labels: pageLabels,
-        datasets: [{
-          label: 'Beacon Records',
-          data: pageCounts,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true
-          }
-        },
-        scales: {
-          x: {
-            ticks: {
-              autoSkip: false,
-              maxRotation: 35,
-              minRotation: 20
-            }
-          },
-          y: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: 'Records'
-            }
-          }
-        }
-      }
-    });
-
-    new Chart(document.getElementById('eventBucketChart'), {
-      type: 'doughnut',
-      data: {
-        labels: bucketLabels,
-        datasets: [{
-          label: 'Payload Count',
-          data: bucketCounts,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'top'
-          }
-        }
-      }
-    });
-
-    new Chart(document.getElementById('eventTypeChart'), {
-      type: 'bar',
-      data: {
-        labels: eventTypeLabels,
+        labels: interactionLabels,
         datasets: [{
           label: 'Interaction Event Count',
-          data: eventTypeValues,
+          data: interactionValues,
           borderWidth: 1
         }]
       },
       options: {
+        indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
@@ -410,17 +586,41 @@ $eventTypeValues = array_values($eventTypeCounts);
         },
         scales: {
           x: {
-            ticks: {
-              autoSkip: false,
-              maxRotation: 35,
-              minRotation: 20
-            }
-          },
-          y: {
             beginAtZero: true,
             title: {
               display: true,
               text: 'Events'
+            }
+          }
+        }
+      }
+    });
+
+    new Chart(document.getElementById('waterfallChart'), {
+      type: 'bar',
+      data: {
+        labels: waterfallLabels,
+        datasets: [{
+          label: 'Milliseconds',
+          data: waterfallValues,
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'ms'
             }
           }
         }
