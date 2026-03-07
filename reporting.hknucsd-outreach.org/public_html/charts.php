@@ -10,7 +10,7 @@ $stmt1 = $pdo->query("
     SELECT
         page,
         COUNT(*) AS beacon_count
-    FROM YOUR_REAL_TABLE_NAME
+    FROM beacons_raw
     GROUP BY page
     ORDER BY beacon_count DESC
     LIMIT 10
