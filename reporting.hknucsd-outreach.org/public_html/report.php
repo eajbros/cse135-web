@@ -5,7 +5,7 @@ require_once __DIR__ . '/db.php';
 
 $stmt = $pdo->query("
     SELECT id, received_at, sid, page, sent_at, payload
-    FROM beacons
+    FROM beacons_raw
     ORDER BY received_at DESC
     LIMIT 100
 ");
