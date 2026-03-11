@@ -3,6 +3,7 @@
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allow = [
   'https://hknucsd-outreach.org',
+  'https://test.hknucsd-outreach.org',
   'https://collector.hknucsd-outreach.org',
 ];
 
