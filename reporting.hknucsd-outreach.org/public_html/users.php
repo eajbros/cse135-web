@@ -115,6 +115,10 @@ if ($action === 'edit' && !empty($_GET['user_id'])) {
         $action = 'list';
     }
 }
+
+    $current_display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
+    $current_role = get_user_role();
+    $avatar_char = strtoupper(substr($current_display_name, 0, 1));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -171,6 +175,12 @@ if ($action === 'edit' && !empty($_GET['user_id'])) {
       gap: 20px;
     }
 
+    .navbar-content {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+    }
+
     .navbar-nav a {
       text-decoration: none;
       color: var(--text);
@@ -181,6 +191,69 @@ if ($action === 'edit' && !empty($_GET['user_id'])) {
 
     .navbar-nav a:hover {
       color: var(--accent);
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .nav-role-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .nav-role-badge.admin {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    .nav-role-badge.analyst {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .nav-role-badge.viewer {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    .logout-btn {
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .logout-btn:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
     }
 
     .container {
@@ -435,8 +508,20 @@ if ($action === 'edit' && !empty($_GET['user_id'])) {
 <body>
   <nav class="navbar">
     <div class="navbar-brand">👥 User Management</div>
-    <div class="navbar-nav">
-      <a href="/index.php">← Back to Dashboard</a>
+    <div class="navbar-content">
+      <div class="navbar-nav">
+        <a href="/index.php">← Dashboard</a>
+        <a href="/charts.php">📊 Charts</a>
+        <a href="/report.php">📋 Reports</a>
+      </div>
+      <div class="user-info">
+        <div class="user-avatar"><?= htmlspecialchars($avatar_char) ?></div>
+        <div>
+          <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($current_display_name) ?></div>
+          <span class="nav-role-badge <?= str_replace('_', '-', $current_role) ?>"><?= htmlspecialchars(str_replace('_', ' ', $current_role)) ?></span>
+        </div>
+        <a href="/logout.php" class="logout-btn">Logout</a>
+      </div>
     </div>
   </nav>
 

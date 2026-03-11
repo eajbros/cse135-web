@@ -1,54 +1,224 @@
 <?php
 require_once 'auth.php';
 require_login();
+
+$display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
+$role = get_user_role();
+$avatar_char = strtoupper(substr($display_name, 0, 1));
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-    nav { background: #333; color: white; padding: 15px; margin: -20px -20px 20px; display: flex; justify-content: space-between; }
-    nav a { color: white; text-decoration: none; margin: 0 15px; }
-    h1 { color: #333; }
-    .role { background: #f0f0f0; padding: 5px 10px; border-radius: 3px; font-size: 0.9em; }
-    a { color: #2563eb; }
-    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-    th { background: #f0f0f0; }
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .navbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+
+    .navbar-brand {
+      font-size: 1.3rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .navbar-content {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+    }
+
+    .navbar-nav {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .navbar-nav a {
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+
+    .navbar-nav a:hover {
+      color: var(--accent);
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .role-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .role-badge.admin {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    .role-badge.analyst {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .role-badge.viewer {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    .logout-btn {
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .logout-btn:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 32px auto;
+      padding: 0 20px;
+    }
+
+    .page-header {
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.05);
+      padding: 20px;
+    }
+
+    .panel p {
+      margin: 0 0 12px;
+    }
+
+    .panel p:last-child {
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
-  <nav>
-    <div><strong>Dashboard</strong></div>
-    <div>
-      <span class="role"><?= htmlspecialchars(get_user_role()) ?></span>
-      <?php if (is_admin() || is_analyst()): ?>
-        <a href="/charts.php">Charts</a>
-        <a href="/report.php">Reports</a>
-      <?php endif; ?>
-      <?php if (is_admin()): ?>
-        <a href="/users.php">Manage Users</a>
-      <?php endif; ?>
-      <a href="/logout.php">Logout</a>
+  <nav class="navbar">
+    <div class="navbar-brand">📈 Dashboard</div>
+    <div class="navbar-content">
+      <div class="navbar-nav">
+        <?php if (is_admin() || is_analyst()): ?>
+          <a href="/charts.php">📊 Charts</a>
+          <a href="/report.php">📋 Reports</a>
+        <?php endif; ?>
+        <?php if (is_admin()): ?>
+          <a href="/users.php">👥 Manage Users</a>
+        <?php endif; ?>
+      </div>
+      <div class="user-info">
+        <div class="user-avatar"><?= htmlspecialchars($avatar_char) ?></div>
+        <div>
+          <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($display_name) ?></div>
+          <span class="role-badge <?= str_replace('_', '-', $role) ?>"><?= str_replace('_', ' ', $role) ?></span>
+        </div>
+        <a href="/logout.php" class="logout-btn">Logout</a>
+      </div>
     </div>
   </nav>
 
-  <h1>Welcome, <?= htmlspecialchars($_SESSION['username']) ?>!</h1>
-  <p>Role: <span class="role"><?= htmlspecialchars(get_user_role()) ?></span></p>
+  <div class="container">
+    <div class="page-header">
+      <h1>Welcome, <?= htmlspecialchars($_SESSION['username']) ?>!</h1>
+      <p class="subtitle">Your reporting portal home</p>
+    </div>
 
-  <?php if (is_viewer()): ?>
-    <p>You have read-only access to saved reports.</p>
-  <?php elseif (is_analyst()): ?>
-    <p>You have access to analytics.</p>
-    <?php if (empty(get_allowed_sections())): ?>
-      <p><strong>No sections assigned yet.</strong></p>
-    <?php else: ?>
-      <p>Assigned sections: <?= htmlspecialchars(implode(', ', get_allowed_sections())) ?></p>
-    <?php endif; ?>
-  <?php else: ?>
-    <p>You are an administrator.</p>
-  <?php endif; ?>
+    <div class="panel">
+      <?php if (is_viewer()): ?>
+        <p>You have read-only access to saved reports.</p>
+      <?php elseif (is_analyst()): ?>
+        <p>You have access to analytics.</p>
+        <?php if (empty(get_allowed_sections())): ?>
+          <p><strong>No sections assigned yet.</strong></p>
+        <?php else: ?>
+          <p>Assigned sections: <?= htmlspecialchars(implode(', ', get_allowed_sections())) ?></p>
+        <?php endif; ?>
+      <?php else: ?>
+        <p>You are an administrator.</p>
+      <?php endif; ?>
+    </div>
+  </div>
 </body>
 </html>
