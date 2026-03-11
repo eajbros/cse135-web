@@ -18,6 +18,7 @@ if (!isset($_COOKIE['sid']) || !preg_match('/^[a-f0-9]{32}$/', $_COOKIE['sid']))
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wrecked Tech - Quality Issues, Quality Prices</title>
+    <script defer src="https://collector.hknucsd-outreach.org/collector.js"></script>
     <script src="js/upgrade-products.js"></script>
     <link rel="stylesheet" href="css/styles.css">
 </head>
