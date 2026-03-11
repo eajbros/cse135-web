@@ -148,14 +148,25 @@ if (!is_dir($exportsDir) && !mkdir($exportsDir, 0775, true) && !is_dir($exportsD
     die('Failed to create export directory.');
 }
 
+if (!is_writable($exportsDir)) {
+  @chmod($exportsDir, 0775);
+}
+
+if (!is_writable($exportsDir)) {
+  http_response_code(500);
+  die('Export directory is not writable: ' . htmlspecialchars($exportsDir));
+}
+
 cleanup_old_exports($exportsDir, 7);
 
 $filename = 'report-export-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.pdf';
 $filePath = $exportsDir . '/' . $filename;
 
 if (file_put_contents($filePath, $pdfBinary) === false) {
+  $lastError = error_get_last();
+  $detail = is_array($lastError) && isset($lastError['message']) ? $lastError['message'] : 'Unknown filesystem error';
     http_response_code(500);
-    die('Failed to save exported PDF.');
+  die('Failed to save exported PDF. ' . htmlspecialchars($detail));
 }
 
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
