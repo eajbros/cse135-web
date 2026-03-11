@@ -20,5 +20,14 @@ jobs:
           script: |
             cd /var/www/hknucsd-outreach.org/public_html
             git pull origin main
+
+            REPORTING_DIR="/var/www/hknucsd-outreach.org/public_html/cse135-web/reporting.hknucsd-outreach.org"
+
+            if [ -f "$REPORTING_DIR/composer.json" ]; then
+              cd "$REPORTING_DIR"
+              composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
+              composer clear-cache
+            fi
+
             sudo systemctl reload apache2
 
