@@ -1,6 +1,13 @@
 <?php
 require_once __DIR__ . '/auth.php';
 require_login();
+
+// Only super admin and analysts can view charts
+if (!is_admin() && !is_analyst()) {
+    http_response_code(403);
+    die('Access denied. You do not have permission to view this data.');
+}
+
 require_once __DIR__ . '/db.php';
 
 function display_event_type(string $type): string {
@@ -209,6 +216,13 @@ foreach ($navigationTimings as $value) {
 
 $navLabels = array_keys($navHistogram);
 $navData = array_values($navHistogram);
+
+// Get current user display name
+$display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
+$role = get_user_role();
+
+// Display name helper for avatar
+$avatar_char = strtoupper(substr($display_name, 0, 1));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -225,6 +239,7 @@ $navData = array_values($navHistogram);
       --muted: #6b7280;
       --border: #e5e7eb;
       --accent: #2563eb;
+      --accent-soft: #eff6ff;
       --good-bg: #ecfdf3;
       --good-text: #047857;
       --warn-bg: #fff7ed;
@@ -239,9 +254,115 @@ $navData = array_values($navHistogram);
 
     body {
       margin: 0;
-      font-family: Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg);
       color: var(--text);
+    }
+
+    .navbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+
+    .navbar-brand {
+      font-size: 1.3rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .navbar-content {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+    }
+
+    .navbar-nav {
+      display: flex;
+      gap: 24px;
+    }
+
+    .navbar-nav a {
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+
+    .navbar-nav a:hover {
+      color: var(--accent);
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .role-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .role-badge.admin {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    .role-badge.analyst {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .role-badge.viewer {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    .logout-btn {
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .logout-btn:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
     }
 
     .container {
@@ -250,13 +371,8 @@ $navData = array_values($navHistogram);
       padding: 0 20px;
     }
 
-    .topbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
+    .page-header {
       margin-bottom: 24px;
-      flex-wrap: wrap;
     }
 
     h1 {
@@ -267,18 +383,6 @@ $navData = array_values($navHistogram);
     .subtitle {
       margin: 6px 0 0;
       color: var(--muted);
-    }
-
-    .nav {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .nav a {
-      text-decoration: none;
-      color: var(--accent);
-      font-weight: 600;
     }
 
     .section {
@@ -399,17 +503,28 @@ $navData = array_values($navHistogram);
   </style>
 </head>
 <body>
+  <nav class="navbar">
+    <div class="navbar-brand">📊 Analytics Charts</div>
+    <div class="navbar-content">
+      <div class="navbar-nav">
+        <a href="/index.php">← Dashboard</a>
+        <a href="/report.php">📋 Data Table</a>
+      </div>
+      <div class="user-info">
+        <div class="user-avatar"><?= strtoupper(substr($display_name, 0, 1)) ?></div>
+        <div>
+          <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($display_name) ?></div>
+          <span class="role-badge <?= str_replace('_', '-', $role) ?>"><?= str_replace('_', ' ', $role) ?></span>
+        </div>
+        <a href="/logout.php" class="logout-btn">Logout</a>
+      </div>
+    </div>
+  </nav>
+
   <div class="container">
-    <div class="topbar">
-      <div>
-        <h1>Analytics Charts</h1>
-        <p class="subtitle">Visual summaries of collected interaction and performance data</p>
-      </div>
-      <div class="nav">
-        <a href="/index.php">Dashboard</a>
-        <a href="/report.php">Reports</a>
-        <a href="/logout.php">Logout</a>
-      </div>
+    <div class="page-header">
+      <h1>Analytics Charts</h1>
+      <p class="subtitle">Visual summaries of collected interaction and performance data</p>
     </div>
 
     <section class="section">
