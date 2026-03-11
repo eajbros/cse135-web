@@ -268,21 +268,6 @@ if (is_dir($exports_dir)) {
     <div class="panel">
       <?php if (is_viewer()): ?>
         <p>You have read-only access to saved reports.</p>
-        <h2 class="exports-title">Recent PDF Exports</h2>
-        <?php if (empty($recent_exports)): ?>
-          <p>No exported PDFs available yet.</p>
-        <?php else: ?>
-          <ul class="exports-list">
-            <?php foreach ($recent_exports as $export): ?>
-              <li class="exports-item">
-                <a class="exports-link" href="<?= htmlspecialchars($export['url']) ?>" target="_blank" rel="noopener">
-                  <?= htmlspecialchars($export['name']) ?>
-                </a>
-                <div class="exports-meta">Generated: <?= htmlspecialchars($export['modified']) ?></div>
-              </li>
-            <?php endforeach; ?>
-          </ul>
-        <?php endif; ?>
       <?php elseif (is_analyst()): ?>
         <p>You have access to analytics.</p>
         <?php if (empty(get_allowed_sections())): ?>
@@ -292,6 +277,22 @@ if (is_dir($exports_dir)) {
         <?php endif; ?>
       <?php else: ?>
         <p>You are an administrator.</p>
+      <?php endif; ?>
+
+      <h2 class="exports-title">Recent PDF Exports</h2>
+      <?php if (empty($recent_exports)): ?>
+        <p>No exported PDFs available yet.</p>
+      <?php else: ?>
+        <ul class="exports-list">
+          <?php foreach ($recent_exports as $export): ?>
+            <li class="exports-item">
+              <a class="exports-link" href="<?= htmlspecialchars($export['url']) ?>" target="_blank" rel="noopener">
+                <?= htmlspecialchars($export['name']) ?>
+              </a>
+              <div class="exports-meta">Generated: <?= htmlspecialchars($export['modified']) ?></div>
+            </li>
+          <?php endforeach; ?>
+        </ul>
       <?php endif; ?>
     </div>
   </div>
