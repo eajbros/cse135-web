@@ -1,5 +1,5 @@
 -- Update users table to add role and allowed_sections
-ALTER TABLE users ADD COLUMN role ENUM('admin', 'analyst', 'viewer') DEFAULT 'viewer' AFTER password_hash;
+-- Only add columns if they don't exist
 ALTER TABLE users ADD COLUMN allowed_sections JSON DEFAULT NULL AFTER role;
 ALTER TABLE users ADD COLUMN display_name VARCHAR(255) DEFAULT NULL AFTER username;
 

@@ -43,177 +43,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Analytics Login</title>
+  <title>Login</title>
   <style>
-    :root {
-      --bg: #f6f8fb;
-      --card: #ffffff;
-      --text: #1f2937;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --accent: #2563eb;
-      --error: #dc2626;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-
-    .login-container {
-      background: var(--card);
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-      padding: 40px;
-      max-width: 400px;
-      width: 100%;
-    }
-
-    .logo {
-      text-align: center;
-      margin-bottom: 32px;
-    }
-
-    .logo h1 {
-      margin: 0;
-      font-size: 1.8rem;
-      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .logo p {
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 0.95rem;
-    }
-
-    .alert {
-      background: #fef2f2;
-      border: 1px solid #fcdddd;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 20px;
-      color: var(--error);
-      font-size: 0.95rem;
-    }
-
-    .form-group {
-      margin-bottom: 20px;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-weight: 600;
-      font-size: 0.95rem;
-    }
-
-    input[type="text"],
-    input[type="password"] {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 0.95rem;
-      transition: all 0.2s;
-    }
-
-    input[type="text"]:focus,
-    input[type="password"]:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-    }
-
-    button {
-      width: 100%;
-      padding: 12px 16px;
-      background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-      margin-top: 8px;
-    }
-
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
-    }
-
-    button:active {
-      transform: translateY(0);
-    }
-
-    .demo-creds {
-      margin-top: 24px;
-      padding-top: 24px;
-      border-top: 1px solid var(--border);
-      font-size: 0.85rem;
-      color: var(--muted);
-    }
-
-    .demo-creds strong {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--text);
-    }
-
-    .cred-item {
-      background: #f9fafb;
-      padding: 8px 12px;
-      border-radius: 6px;
-      margin-bottom: 6px;
-      font-family: 'Courier New', monospace;
-    }
+    body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; }
+    input { width: 100%; padding: 8px; margin: 10px 0; }
+    button { width: 100%; padding: 10px; background: #2563eb; color: white; border: none; cursor: pointer; }
+    .error { color: red; }
   </style>
 </head>
 <body>
-  <div class="login-container">
-    <div class="logo">
-      <h1>Analytics</h1>
-      <p>Role-Based Reporting Dashboard</p>
-    </div>
+  <h1>Login</h1>
 
-    <?php if ($error): ?>
-      <div class="alert"><?= htmlspecialchars($error) ?></div>
-    <?php endif; ?>
+  <?php if ($error): ?>
+    <p class="error"><?= htmlspecialchars($error) ?></p>
+  <?php endif; ?>
 
-    <form method="POST" action="/login.php">
-      <div class="form-group">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" required autofocus>
-      </div>
+  <form method="POST" action="/login.php">
+    <label>Username</label>
+    <input type="text" name="username" required>
 
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
-      </div>
+    <label>Password</label>
+    <input type="password" name="password" required>
 
-      <button type="submit">Login</button>
-    </form>
-
-    <div class="demo-creds">
-      <strong>Demo Credentials:</strong>
-      <div class="cred-item">admin / password</div>
-      <div class="cred-item">analyst / password</div>
-      <div class="cred-item">viewer / password</div>
-    </div>
-  </div>
+    <button type="submit">Login</button>
+  </form>
 </body>
 </html>
