@@ -1,0 +1,8 @@
+{
+  "name": "cse135/reporting-dashboard",
+  "description": "Reporting dashboard PDF export support",
+  "type": "project",
+  "require": {
+    "dompdf/dompdf": "^3.1"
+  }
+}

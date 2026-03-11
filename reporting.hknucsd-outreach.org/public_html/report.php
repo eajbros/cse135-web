@@ -212,6 +212,31 @@ $role = get_user_role();
       color: var(--muted);
     }
 
+    .card-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .export-btn {
+      display: inline-block;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #bfdbfe;
+      transition: all 0.2s;
+    }
+
+    .export-btn:hover {
+      background: #dbeafe;
+      border-color: #93c5fd;
+    }
+
     .table-wrap {
       overflow-x: auto;
     }
@@ -321,7 +346,10 @@ $role = get_user_role();
     <div class="card">
       <div class="card-header">
         <strong>Recent Beacon Reports</strong>
-        <p>Showing the 100 most recently received records</p>
+        <div class="card-header-actions">
+          <p>Showing the 100 most recently received records</p>
+          <a href="/export_report.php" class="export-btn">⬇️ Export PDF</a>
+        </div>
       </div>
 
       <?php if (empty($rows)): ?>

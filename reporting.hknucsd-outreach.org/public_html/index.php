@@ -5,6 +5,28 @@ require_login();
 $display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
 $role = get_user_role();
 $avatar_char = strtoupper(substr($display_name, 0, 1));
+
+$recent_exports = [];
+$exports_dir = __DIR__ . '/exports';
+
+if (is_dir($exports_dir)) {
+  $files = glob($exports_dir . '/report-export-*.pdf') ?: [];
+
+  usort($files, static function (string $a, string $b): int {
+    return (filemtime($b) ?: 0) <=> (filemtime($a) ?: 0);
+  });
+
+  foreach (array_slice($files, 0, 5) as $file) {
+    $basename = basename($file);
+    $modified = filemtime($file);
+
+    $recent_exports[] = [
+      'url' => '/exports/' . rawurlencode($basename),
+      'name' => $basename,
+      'modified' => $modified ? date('Y-m-d H:i', $modified) : 'Unknown time',
+    ];
+  }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -173,6 +195,44 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
     .panel p:last-child {
       margin-bottom: 0;
     }
+
+    .exports-title {
+      margin: 16px 0 10px;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .exports-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .exports-item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #f9fafb;
+    }
+
+    .exports-link {
+      text-decoration: none;
+      color: var(--accent);
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .exports-link:hover {
+      text-decoration: underline;
+    }
+
+    .exports-meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
   </style>
 </head>
 <body>
@@ -182,7 +242,7 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
       <div class="navbar-nav">
         <?php if (is_admin() || is_analyst()): ?>
           <a href="/charts.php">📊 Charts</a>
-          <a href="/report.php">📋 Reports</a>
+          <a href="/report.php">📋 Data Table</a>
         <?php endif; ?>
         <?php if (is_admin()): ?>
           <a href="/users.php">👥 Manage Users</a>
@@ -208,6 +268,21 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
     <div class="panel">
       <?php if (is_viewer()): ?>
         <p>You have read-only access to saved reports.</p>
+        <h2 class="exports-title">Recent PDF Exports</h2>
+        <?php if (empty($recent_exports)): ?>
+          <p>No exported PDFs available yet.</p>
+        <?php else: ?>
+          <ul class="exports-list">
+            <?php foreach ($recent_exports as $export): ?>
+              <li class="exports-item">
+                <a class="exports-link" href="<?= htmlspecialchars($export['url']) ?>" target="_blank" rel="noopener">
+                  <?= htmlspecialchars($export['name']) ?>
+                </a>
+                <div class="exports-meta">Generated: <?= htmlspecialchars($export['modified']) ?></div>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
       <?php elseif (is_analyst()): ?>
         <p>You have access to analytics.</p>
         <?php if (empty(get_allowed_sections())): ?>
