@@ -63,7 +63,7 @@
             </div>
             <nav>
                 <ul style="list-style: none; display: flex; gap: 20px;">
-                    <li><a href="index.html" style="color: #0000FF; text-decoration: underline;">Home</a></li>
+                    <li><a href="index.php" style="color: #0000FF; text-decoration: underline;">Home</a></li>
                     <li><span style="color: #0000FF; cursor: pointer; text-decoration: underline;" onclick="window.location.href='products.html'">Products</span></li>
                     <li><a href="product-detail.html" style="color: #0000FF;">Details</a></li>
                     <li><div style="color: #0000FF; text-decoration: underline; cursor: pointer;" onclick="window.location.href='checkout.html'">Checkout</div></li>
@@ -162,7 +162,7 @@
             
             if (countdown === 0) {
                 clearInterval(countdownInterval);
-                document.getElementById('countdown').innerHTML = 'Redirect failed. <a href="index.html" style="color: #0000FF;">Click here</a> to go home.';
+                document.getElementById('countdown').innerHTML = 'Redirect failed. <a href="index.php" style="color: #0000FF;">Click here</a> to go home.';
             }
         }, 1000);
         

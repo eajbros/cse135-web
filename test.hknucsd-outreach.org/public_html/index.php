@@ -1,3 +1,17 @@
+<?php
+if (!isset($_COOKIE['sid']) || !preg_match('/^[a-f0-9]{32}$/', $_COOKIE['sid'])) {
+  $sid = bin2hex(random_bytes(16));
+  setcookie('sid', $sid, [
+    'expires'  => time() + 60*60*24*30,
+    'path'     => '/',
+    'domain'   => '.hknucsd-outreach.org',
+    'secure'   => true,
+    'httponly' => false,
+    'samesite' => 'Lax'
+  ]);
+  $_COOKIE['sid'] = $sid;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,7 +29,7 @@
             </div>
             <nav>
                 <ul style="list-style: none; display: flex; gap: 20px;">
-                    <li><a href="index.html" style="color: #0000FF; text-decoration: underline;">Home</a></li>
+                    <li><a href="index.php" style="color: #0000FF; text-decoration: underline;">Home</a></li>
                     <li><span style="color: #0000FF; cursor: pointer; text-decoration: underline;" onclick="window.location.href='products.html'">Products</span></li>
                     <li><a href="product-detail.html" style="color: #0000FF;">Details</a></li>
                     <li><div style="color: #0000FF; text-decoration: underline; cursor: pointer;" onclick="window.location.href='checkout.html'">Checkout</div></li>

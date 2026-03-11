@@ -93,7 +93,7 @@
     }
 
     function getPath() {
-        return (window.location.pathname.split('/').pop() || 'index.html').toLowerCase();
+        return (window.location.pathname.split('/').pop() || 'index.php').toLowerCase();
     }
 
     function randomItem(list) {
@@ -428,7 +428,7 @@
     }
 
     function setupHeroFallback() {
-        if (getPath() !== 'index.html') {
+        if (getPath() !== 'index.php') {
             return;
         }
 
@@ -468,7 +468,7 @@
     window.getMysteryEwasteDescription = getMysteryDescription;
 
     function addIndexUpgradeShelf() {
-        if (getPath() !== 'index.html' || !Array.isArray(window.wreckedUpgradeCatalog)) {
+        if (getPath() !== 'index.php' || !Array.isArray(window.wreckedUpgradeCatalog)) {
             return;
         }
 

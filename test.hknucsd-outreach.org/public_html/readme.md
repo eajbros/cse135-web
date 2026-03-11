@@ -5,7 +5,7 @@ A deliberately flawed e-commerce site for "Wrecked Tech" - a company selling dam
 
 ## Core Pages
 
-### 1. Homepage (index.html)
+### 1. Homepage (index.php)
 - Hero banner with auto-playing video (no controls)
 - Product carousel that loads all images at once
 - Newsletter signup form with no validation
@@ -67,7 +67,7 @@ A deliberately flawed e-commerce site for "Wrecked Tech" - a company selling dam
 
 ```
 wrecked-tech/
-├── index.html
+├── index.php
 ├── products.html
 ├── product-detail.html
 ├── checkout.html
