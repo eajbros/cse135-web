@@ -10,7 +10,7 @@ $recent_exports = [];
 $exports_dir = __DIR__ . '/exports';
 
 if (is_dir($exports_dir)) {
-  $files = glob($exports_dir . '/report-export-*.pdf') ?: [];
+  $files = glob($exports_dir . '/chart-export-*.pdf') ?: [];
 
   usort($files, static function (string $a, string $b): int {
     return (filemtime($b) ?: 0) <=> (filemtime($a) ?: 0);

@@ -385,6 +385,32 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
       color: var(--muted);
     }
 
+    .page-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .export-btn {
+      display: inline-block;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #bfdbfe;
+      transition: all 0.2s;
+    }
+
+    .export-btn:hover {
+      background: #dbeafe;
+      border-color: #93c5fd;
+    }
+
     .section {
       margin-bottom: 24px;
     }
@@ -523,7 +549,10 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
 
   <div class="container">
     <div class="page-header">
-      <h1>Analytics Charts</h1>
+      <div class="page-header-row">
+        <h1>Analytics Charts</h1>
+        <a href="/export_report.php" class="export-btn">⬇️ Export Charts PDF</a>
+      </div>
       <p class="subtitle">Visual summaries of collected interaction and performance data</p>
     </div>
 
