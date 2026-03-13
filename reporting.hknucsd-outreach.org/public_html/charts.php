@@ -501,16 +501,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             throw new Exception('Report name is too long (max 255 characters).');
         }
         
-        // Package report data as JSON snapshot
+        // Package report data as JSON snapshot - category-specific
         $report_snapshot = [
             'category' => $report_category,
             'timestamp' => date('Y-m-d H:i:s'),
             'analyst' => $display_name,
-            'metrics' => $metricSummary ?? [],
-            'interactions' => array_combine($interactionLabels ?? [], $interactionData ?? []),
-            'navigation' => array_combine($navLabels ?? [], $navData ?? []),
             'comments_count' => count($comments ?? [])
         ];
+        
+        // Add category-specific data
+        if ($report_category === 'performance') {
+            $report_snapshot['metrics'] = $metricSummary ?? [];
+            $report_snapshot['data_type'] = 'metrics';
+        } elseif ($report_category === 'behavioral') {
+            $report_snapshot['interactions'] = array_combine($interactionLabels ?? [], $interactionData ?? []);
+            $report_snapshot['data_type'] = 'interactions';
+        } elseif ($report_category === 'engagement') {
+            $report_snapshot['navigation'] = array_combine($navLabels ?? [], $navData ?? []);
+            $report_snapshot['data_type'] = 'navigation';
+        }
         
         // Generate PDF using dompdf
         $pdf_filename = null;
@@ -538,20 +547,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $html .= "<p><strong>Date:</strong> " . htmlspecialchars($report_snapshot['timestamp']) . "</p>";
             $html .= "</div>";
             
-            if (!empty($report_snapshot['metrics'])) {
-                $html .= "<h2>Metrics Summary</h2><table><tr><th>Metric</th><th>Value</th></tr>";
-                foreach ($report_snapshot['metrics'] as $metric => $value) {
-                    $val_str = is_array($value) ? implode(', ', array_map('strval', $value)) : (string)$value;
-                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td class='metric-value'>" . htmlspecialchars($val_str) . "</td></tr>";
+            // Display category-specific content
+            if ($report_snapshot['data_type'] === 'metrics' && !empty($report_snapshot['metrics'])) {
+                $html .= "<h2>Performance Metrics</h2><table><tr><th>Metric</th><th>Value</th><th>Rating</th></tr>";
+                foreach ($report_snapshot['metrics'] as $metric => $data) {
+                    if (is_array($data)) {
+                        $val_str = $data['formatted'] ?? '—';
+                        $rating = $data['rating'] ?? 'no data';
+                    } else {
+                        $val_str = (string)$data;
+                        $rating = 'n/a';
+                    }
+                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td>" . htmlspecialchars($val_str) . "</td><td>" . htmlspecialchars($rating) . "</td></tr>";
                 }
                 $html .= "</table>";
-            }
-            
-            if (!empty($report_snapshot['interactions'])) {
-                $html .= "<h2>Interactions</h2><table><tr><th>Type</th><th>Count</th></tr>";
+            } elseif ($report_snapshot['data_type'] === 'interactions' && !empty($report_snapshot['interactions'])) {
+                $html .= "<h2>User Interactions</h2><table><tr><th>Interaction Type</th><th>Count</th></tr>";
                 foreach ($report_snapshot['interactions'] as $type => $count) {
                     if ($count > 0) {
                         $html .= "<tr><td>" . htmlspecialchars($type) . "</td><td>" . htmlspecialchars((string)$count) . "</td></tr>";
+                    }
+                }
+                $html .= "</table>";
+            } elseif ($report_snapshot['data_type'] === 'navigation' && !empty($report_snapshot['navigation'])) {
+                $html .= "<h2>Navigation Timing Distribution</h2><table><tr><th>Time Bucket</th><th>Occurrences</th></tr>";
+                foreach ($report_snapshot['navigation'] as $bucket => $count) {
+                    if ($count > 0) {
+                        $html .= "<tr><td>" . htmlspecialchars($bucket) . "</td><td>" . htmlspecialchars((string)$count) . "</td></tr>";
                     }
                 }
                 $html .= "</table>";
