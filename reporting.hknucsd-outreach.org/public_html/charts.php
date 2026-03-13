@@ -528,7 +528,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             
             $dompdf = new Dompdf();
             // Enable remote image loading for QuickChart
-            $dompdf->setOptions(['isRemoteEnabled' => true]);
+            $options = $dompdf->getOptions();
+            $options->setIsRemoteEnabled(true);
             
             // Create HTML content for PDF
             $html = "<html><head><meta charset='UTF-8'><style>
