@@ -1489,7 +1489,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
           <button onclick="document.getElementById('saveReportModal').style.display='none'" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--muted);">&times;</button>
         </div>
         
-        <form method="POST" style="display: flex; flex-direction: column; gap: 12px;">
+        <form id="saveReportForm" method="POST" style="display: flex; flex-direction: column; gap: 12px;">
           <input type="hidden" name="action" value="save_report">
           <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
           
@@ -1503,6 +1503,15 @@ foreach ($metricTimelineByType as $metric => $entries) {
             <button type="button" onclick="document.getElementById('saveReportModal').style.display='none'" style="flex: 1; background: var(--border); color: var(--text); border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer;">Cancel</button>
           </div>
         </form>
+        
+        <script>
+          document.getElementById('saveReportForm').addEventListener('submit', function(e) {
+            // Optional: add a small delay for visual feedback, then redirect to dashboard
+            setTimeout(function() {
+              window.location.href = '/index.php';
+            }, 500);
+          });
+        </script>
       </div>
     </div>
     <?php endif; ?>
