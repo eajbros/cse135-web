@@ -2,13 +2,79 @@
 require_once __DIR__ . '/auth.php';
 require_login();
 
-// Only super admin and analysts can view charts
+// Only super admin and analysts can view reports
 if (!is_admin() && !is_analyst()) {
     http_response_code(403);
     die('Access denied. You do not have permission to view this data.');
 }
 
 require_once __DIR__ . '/db.php';
+
+// Initialize reports and comments tables if they don't exist
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS reports (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            category VARCHAR(50) NOT NULL UNIQUE,
+            title VARCHAR(255) NOT NULL,
+            description VARCHAR(500),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_category (category)
+        )
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS report_comments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            category VARCHAR(50) NOT NULL,
+            analyst_id INT,
+            content LONGTEXT NOT NULL,
+            is_markdown BOOLEAN DEFAULT FALSE,
+            is_published BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_category (category),
+            INDEX idx_analyst_id (analyst_id)
+        )
+    ");
+
+    // Upsert default reports
+    $reports = [
+        ['performance', 'Performance Metrics Summary', 'Core Web Vitals and Key Performance Indicators'],
+        ['interactions', 'User Interactions Analysis', 'User behavior patterns and engagement metrics'],
+        ['navigation', 'Navigation Performance', 'Page load and resource timing analysis']
+    ];
+    
+    foreach ($reports as [$cat, $title, $desc]) {
+        $stmt = $pdo->prepare("
+            INSERT INTO reports (category, title, description) 
+            VALUES (?, ?, ?) 
+            ON DUPLICATE KEY UPDATE title=?, description=?
+        ");
+        $stmt->execute([$cat, $title, $desc, $title, $desc]);
+    }
+} catch (Exception $e) {
+    // Table might already exist, continue
+}
+
+$report_category = $_GET['report'] ?? 'performance';
+
+// Validate report category
+$allowed_categories = ['performance', 'interactions', 'navigation'];
+if (!in_array($report_category, $allowed_categories)) {
+    http_response_code(400);
+    die('Invalid report category.');
+}
+
+// Check analyst access control
+if (is_analyst()) {
+    $allowed_sections = $_SESSION['allowed_sections'] ?? [];
+    if (!in_array($report_category, $allowed_sections)) {
+        http_response_code(403);
+        die('Access denied. You do not have permission to view the ' . htmlspecialchars($report_category) . ' report.');
+    }
+}
 
 function display_event_type(string $type): string {
     $labels = [
@@ -91,14 +157,17 @@ function format_metric(string $metric, ?float $value): string {
     return number_format($value, 2) . ' s';
 }
 
+
+// Extract beacon data for analysis
 $stmt = $pdo->query("
-    SELECT payload
+    SELECT payload, received_at
     FROM beacons_raw
     ORDER BY received_at DESC
 ");
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Data aggregation for all reports
 $interactionCounts = [];
 $metricValues = [
     'FCP' => [],
@@ -115,51 +184,63 @@ $metricScores = [
     'FID' => [],
 ];
 $navigationTimings = [];
+$eventTimeline = [];
+$metricsTimeline = [];
 
 $ignoredInteractionTypes = ['perf', 'static', 'performance_required'];
 
 foreach ($rows as $row) {
     $payload = json_decode($row['payload'], true);
-    if (!is_array($payload)) {
-        continue;
-    }
-
+    if (!is_array($payload)) continue;
+    
     $events = $payload['events'] ?? [];
-    if (!is_array($events)) {
-        continue;
-    }
+    if (!is_array($events)) continue;
 
     foreach ($events as $event) {
         $type = $event['type'] ?? '(unknown)';
 
         if ($type !== 'perf') {
-            if (in_array($type, $ignoredInteractionTypes, true)) {
-                continue;
-            }
-
+            if (in_array($type, $ignoredInteractionTypes, true)) continue;
+            
             $label = display_event_type($type);
             $interactionCounts[$label] = ($interactionCounts[$label] ?? 0) + 1;
+            $eventTimeline[] = [
+                'type' => $label,
+                'timestamp' => $row['received_at'],
+                'time' => strtotime($row['received_at'])
+            ];
             continue;
         }
 
         $perf = $event['data'] ?? [];
-        if (!is_array($perf)) {
-            continue;
-        }
+        if (!is_array($perf)) continue;
 
         $metricName = normalize_metric_name($perf['metricName'] ?? null);
         $rawValue = $perf['data'] ?? null;
         $score = $perf['vitalsScore'] ?? null;
-
         $value = is_numeric($rawValue) ? (float)$rawValue : null;
 
         if ($metricName === 'navigationTiming' && $value !== null) {
-            $navigationTimings[] = $value;
+            $navigationTimings[] = [
+                'value' => $value,
+                'timestamp' => $row['received_at']
+            ];
         }
 
         if ($metricName !== null && array_key_exists($metricName, $metricValues) && $value !== null) {
-            $metricValues[$metricName][] = $value;
-
+            $metricValues[$metricName][] = [
+                'value' => $value,
+                'score' => $score,
+                'timestamp' => $row['received_at']
+            ];
+            
+            $metricsTimeline[] = [
+                'metric' => $metricName,
+                'value' => $value,
+                'timestamp' => $row['received_at'],
+                'time' => strtotime($row['received_at'])
+            ];
+            
             if (is_string($score) && $score !== '') {
                 $metricScores[$metricName][] = $score;
             }
@@ -167,69 +248,195 @@ foreach ($rows as $row) {
     }
 }
 
+// Process interaction data
 arsort($interactionCounts);
-$interactionCounts = array_slice($interactionCounts, 0, 10, true);
+$topInteractions = array_slice($interactionCounts, 0, 15, true);
+$interactionLabels = array_keys($topInteractions);
+$interactionData = array_values($topInteractions);
 
-$interactionLabels = array_keys($interactionCounts);
-$interactionData = array_values($interactionCounts);
-
+// Process performance metrics
 $metricSummary = [];
+$metricTableData = [];
 foreach ($metricValues as $metric => $values) {
-    $average = count($values) ? array_sum($values) / count($values) : null;
-
+    if (empty($values)) {
+        $metricSummary[$metric] = [
+            'formatted' => '—',
+            'rating' => 'no data',
+            'samples' => 0,
+            'average' => null,
+            'min' => null,
+            'max' => null,
+            'p95' => null
+        ];
+        continue;
+    }
+    
+    $valueList = array_column($values, 'value');
+    $average = array_sum($valueList) / count($valueList);
+    
+    sort($valueList);
+    $min = $valueList[0];
+    $max = $valueList[count($valueList) - 1];
+    $p95Index = (int)ceil(count($valueList) * 0.95) - 1;
+    $p95 = $valueList[$p95Index] ?? $max;
+    
     $scoreCounts = [];
     foreach ($metricScores[$metric] as $score) {
         $scoreCounts[$score] = ($scoreCounts[$score] ?? 0) + 1;
     }
-
     arsort($scoreCounts);
     $dominantScore = count($scoreCounts) ? array_key_first($scoreCounts) : metric_rating($metric, $average);
-
+    
     $metricSummary[$metric] = [
         'formatted' => format_metric($metric, $average),
         'rating' => $dominantScore,
         'samples' => count($values),
+        'average' => $average,
+        'min' => $min,
+        'max' => $max,
+        'p95' => $p95
+    ];
+    
+    $metricTableData[$metric] = [
+        'average' => format_metric($metric, $average),
+        'min' => format_metric($metric, $min),
+        'max' => format_metric($metric, $max),
+        'p95' => format_metric($metric, $p95),
+        'samples' => count($values)
     ];
 }
 
+// Process navigation timing histogram
 $navHistogram = [
     '0.00–0.10 s' => 0,
     '0.10–0.20 s' => 0,
     '0.20–0.30 s' => 0,
     '0.30–0.40 s' => 0,
-    '0.40+ s' => 0,
+    '0.40–0.50 s' => 0,
+    '0.50+ s' => 0,
 ];
 
-foreach ($navigationTimings as $value) {
+$navTableData = [];
+foreach ($navigationTimings as $item) {
+    $value = $item['value'];
     if ($value < 0.10) {
         $navHistogram['0.00–0.10 s']++;
+        $bucket = '0.00–0.10 s';
     } elseif ($value < 0.20) {
         $navHistogram['0.10–0.20 s']++;
+        $bucket = '0.10–0.20 s';
     } elseif ($value < 0.30) {
         $navHistogram['0.20–0.30 s']++;
+        $bucket = '0.20–0.30 s';
     } elseif ($value < 0.40) {
         $navHistogram['0.30–0.40 s']++;
+        $bucket = '0.30–0.40 s';
+    } elseif ($value < 0.50) {
+        $navHistogram['0.40–0.50 s']++;
+        $bucket = '0.40–0.50 s';
     } else {
-        $navHistogram['0.40+ s']++;
+        $navHistogram['0.50+ s']++;
+        $bucket = '0.50+ s';
     }
+    
+    $navTableData[] = [
+        'value' => number_format($value, 3),
+        'bucket' => $bucket,
+        'timestamp' => $item['timestamp']
+    ];
 }
 
 $navLabels = array_keys($navHistogram);
 $navData = array_values($navHistogram);
 
-// Get current user display name
+// Fetch comments for current report
+$stmt = $pdo->prepare("
+    SELECT rc.id, rc.content, rc.is_markdown, rc.is_published, rc.created_at, rc.updated_at, 
+           u.display_name, u.username
+    FROM report_comments rc
+    LEFT JOIN users u ON rc.analyst_id = u.id
+    WHERE rc.category = ? AND rc.is_published = 1
+    ORDER BY rc.created_at DESC
+");
+$stmt->execute([$report_category]);
+$comments = $stmt->fetchAll();
+
+// Handle comment submission
+$comment_message = '';
+$comment_error = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_comment') {
+    try {
+        if (is_analyst() || is_admin()) {
+            $content = trim($_POST['content'] ?? '');
+            $is_markdown = isset($_POST['is_markdown']) ? 1 : 0;
+            
+            if (empty($content)) {
+                throw new Exception('Comment cannot be empty.');
+            }
+            
+            if (strlen($content) > 10000) {
+                throw new Exception('Comment is too long (max 10,000 characters).');
+            }
+            
+            $stmt = $pdo->prepare("
+                INSERT INTO report_comments (category, analyst_id, content, is_markdown, is_published)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $report_category,
+                $_SESSION['user_id'] ?? null,
+                $content,
+                $is_markdown,
+                1
+            ]);
+            
+            $comment_message = 'Comment added successfully!';
+            
+            // Reload comments
+            $stmt = $pdo->prepare("
+                SELECT rc.id, rc.content, rc.is_markdown, rc.is_published, rc.created_at, rc.updated_at, 
+                       u.display_name, u.username
+                FROM report_comments rc
+                LEFT JOIN users u ON rc.analyst_id = u.id
+                WHERE rc.category = ? AND rc.is_published = 1
+                ORDER BY rc.created_at DESC
+            ");
+            $stmt->execute([$report_category]);
+            $comments = $stmt->fetchAll();
+        } else {
+            throw new Exception('Only analysts and admins can add comments.');
+        }
+    } catch (Exception $e) {
+        $comment_error = $e->getMessage();
+    }
+}
+
+// Get current user info
 $display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
 $role = get_user_role();
+$user_id = $_SESSION['user_id'] ?? null;
 
-// Display name helper for avatar
-$avatar_char = strtoupper(substr($display_name, 0, 1));
-?>
+// Prepare metric timeline data (last 20 entries per metric, sorted by timestamp)
+$metricTimelineByType = [];
+foreach ($metricsTimeline as $entry) {
+    if (!isset($metricTimelineByType[$entry['metric']])) {
+        $metricTimelineByType[$entry['metric']] = [];
+    }
+    $metricTimelineByType[$entry['metric']][] = $entry;
+}
+
+// Get last 20 for chart (limit data points)
+foreach ($metricTimelineByType as $metric => $entries) {
+    usort($entries, fn($a, $b) => strtotime($a['timestamp']) <=> strtotime($b['timestamp']));
+    $metricTimelineByType[$metric] = array_slice($entries, -20);
+}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Analytics Charts</title>
+  <title><?= htmlspecialchars($report_category === 'performance' ? 'Performance Metrics' : ($report_category === 'interactions' ? 'User Interactions' : 'Navigation Performance')) ?></title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
@@ -372,17 +579,21 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
     }
 
     .page-header {
-      margin-bottom: 24px;
+      margin-bottom: 32px;
     }
 
     h1 {
       margin: 0;
-      font-size: 2rem;
+      font-size: 2.2rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .subtitle {
-      margin: 6px 0 0;
+      margin: 8px 0 0;
       color: var(--muted);
+      font-size: 1.05rem;
     }
 
     .page-header-row {
@@ -391,6 +602,35 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-tab {
+      padding: 12px 24px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--muted);
+      transition: all 0.2s;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .nav-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .nav-tab:hover {
+      color: var(--text);
     }
 
     .export-btn {
@@ -412,23 +652,26 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
     }
 
     .section {
-      margin-bottom: 24px;
+      margin-bottom: 32px;
     }
 
     .section-title {
       margin: 0 0 8px;
       font-size: 1.35rem;
+      font-weight: 600;
     }
 
     .section-subtitle {
-      margin: 0 0 16px;
+      margin: 0 0 20px;
       color: var(--muted);
+      font-size: 0.95rem;
     }
 
     .scorecards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 16px;
+      margin-bottom: 28px;
     }
 
     .scorecard,
@@ -444,15 +687,18 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
     }
 
     .scorecard .label {
-      font-size: 0.95rem;
+      font-size: 0.85rem;
       color: var(--muted);
       margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
     .scorecard .value {
       font-size: 1.8rem;
       font-weight: 700;
       margin-bottom: 10px;
+      font-variant-numeric: tabular-nums;
     }
 
     .badge {
@@ -485,52 +731,256 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
 
     .samples {
       margin-top: 10px;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       color: var(--muted);
     }
 
     .charts-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
       gap: 20px;
+      margin-bottom: 28px;
     }
 
     .chart-card {
-      padding: 20px;
+      padding: 24px;
     }
 
     .chart-card h2 {
       margin: 0 0 8px;
       font-size: 1.2rem;
+      font-weight: 600;
     }
 
-    .chart-card p {
+    .chart-card > p {
       margin: 0 0 16px;
       color: var(--muted);
       font-size: 0.95rem;
     }
 
     .chart-meta {
-      margin-bottom: 14px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #f9fafb;
+      border-radius: 8px;
+      font-size: 0.9rem;
       color: var(--muted);
-      font-size: 0.95rem;
+    }
+
+    .chart-meta strong {
+      color: var(--text);
     }
 
     .chart-wrap {
       position: relative;
       height: 360px;
+      margin-bottom: 16px;
     }
 
-    @media (max-width: 640px) {
+    .table-responsive {
+      overflow-x: auto;
+      margin-top: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    table thead {
+      background: #f9fafb;
+      font-weight: 600;
+    }
+
+    table th {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    table tbody tr:hover {
+      background: #f9fafb;
+    }
+
+    .comments-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.05);
+    }
+
+    .comment-form {
+      margin-bottom: 24px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    .form-group label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 0.95rem;
+    }
+
+    .form-group textarea {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      resize: vertical;
+      min-height: 100px;
+    }
+
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .form-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .form-check input[type="checkbox"] {
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+    }
+
+    .form-check label {
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .submit-btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .submit-btn:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+    }
+
+    .comment {
+      padding: 16px;
+      margin-bottom: 12px;
+      background: #f9fafb;
+      border-radius: 8px;
+      border-left: 4px solid var(--accent);
+    }
+
+    .comment-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 8px;
+    }
+
+    .comment-author {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .comment-time {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .comment-content {
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .comment-content h1, .comment-content h2, .comment-content h3 {
+      margin: 12px 0 8px;
+      font-size: inherit;
+    }
+
+    .comment-content ul, .comment-content ol {
+      margin: 8px 0;
+      padding-left: 24px;
+    }
+
+    .comment-content code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    .comment-content pre {
+      background: #f3f4f6;
+      padding: 12px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+
+    .message {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 0.95rem;
+    }
+
+    .message.success {
+      background: var(--good-bg);
+      color: var(--good-text);
+      border: 1px solid #a7f3d0;
+    }
+
+    .message.error {
+      background: var(--bad-bg);
+      color: var(--bad-text);
+      border: 1px solid #fecaca;
+    }
+
+    @media (max-width: 768px) {
+      .charts-grid {
+        grid-template-columns: 1fr;
+      }
+
       .chart-wrap {
         height: 300px;
+      }
+
+      h1 {
+        font-size: 1.7rem;
+      }
+
+      .scorecards {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       }
     }
   </style>
 </head>
 <body>
   <nav class="navbar">
-    <div class="navbar-brand">📊 Analytics Charts</div>
+    <div class="navbar-brand">📊 Reporting Dashboard</div>
     <div class="navbar-content">
       <div class="navbar-nav">
         <a href="/index.php">← Dashboard</a>
@@ -549,127 +999,413 @@ $avatar_char = strtoupper(substr($display_name, 0, 1));
 
   <div class="container">
     <div class="page-header">
-      <div class="page-header-row">
-        <h1>Analytics Charts</h1>
-        <a href="/export_report.php" class="export-btn">⬇️ Export Charts PDF</a>
-      </div>
-      <p class="subtitle">Visual summaries of collected interaction and performance data</p>
+      <h1>
+        <?php
+        $icons = ['performance' => '⚡', 'interactions' => '👆', 'navigation' => '🚀'];
+        $titles = [
+          'performance' => 'Performance Metrics Summary',
+          'interactions' => 'User Interactions Analysis',
+          'navigation' => 'Navigation Performance'
+        ];
+        echo $icons[$report_category] ?? '📊';
+        ?> 
+        <?= htmlspecialchars($titles[$report_category] ?? 'Report') ?>
+      </h1>
+      <p class="subtitle">
+        <?php
+        $descs = [
+          'performance' => 'Core Web Vitals (FCP, LCP, CLS) and performance metrics analysis',
+          'interactions' => 'User behavior patterns and engagement metrics',
+          'navigation' => 'Page load timing and navigation performance distribution'
+        ];
+        echo htmlspecialchars($descs[$report_category] ?? 'Report data');
+        ?>
+      </p>
     </div>
 
-    <section class="section">
-      <h2 class="section-title">Performance Health Overview</h2>
-      <p class="section-subtitle">Average values pulled directly from logged performance events such as FCP, LCP, CLS, and FID.</p>
+    <!-- Report Navigation Tabs -->
+    <div class="nav-tabs">
+      <button class="nav-tab <?= $report_category === 'performance' ? 'active' : '' ?>" onclick="location.href='?report=performance'">⚡ Performance</button>
+      <button class="nav-tab <?= $report_category === 'interactions' ? 'active' : '' ?>" onclick="location.href='?report=interactions'">👆 Interactions</button>
+      <button class="nav-tab <?= $report_category === 'navigation' ? 'active' : '' ?>" onclick="location.href='?report=navigation'">🚀 Navigation</button>
+    </div>
 
-      <div class="scorecards">
-        <?php foreach ($metricSummary as $metric => $info): ?>
-          <?php $badgeClass = str_replace(' ', '-', $info['rating']); ?>
-          <div class="scorecard">
-            <div class="label"><?= htmlspecialchars($metric) ?></div>
-            <div class="value"><?= htmlspecialchars($info['formatted']) ?></div>
-            <span class="badge <?= htmlspecialchars($badgeClass) ?>">
-              <?= htmlspecialchars($info['rating']) ?>
-            </span>
-            <div class="samples"><?= htmlspecialchars((string)$info['samples']) ?> sample(s)</div>
+    <?php if ($report_category === 'performance'): ?>
+      <!-- PERFORMANCE REPORT -->
+      <section class="section">
+        <h2 class="section-title">Web Vitals Overview</h2>
+        <p class="section-subtitle">Average values and health status for Core Web Vitals metrics</p>
+
+        <div class="scorecards">
+          <?php foreach ($metricSummary as $metric => $info): ?>
+            <?php $badgeClass = str_replace(' ', '-', $info['rating']); ?>
+            <div class="scorecard">
+              <div class="label"><?= htmlspecialchars($metric) ?></div>
+              <div class="value"><?= htmlspecialchars($info['formatted']) ?></div>
+              <span class="badge <?= htmlspecialchars($badgeClass) ?>">
+                <?= htmlspecialchars($info['rating']) ?>
+              </span>
+              <div class="samples"><?= htmlspecialchars((string)$info['samples']) ?> sample(s)</div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      </section>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h2>Metrics Trend Over Time</h2>
+          <p>Performance metrics plotted chronologically for trend analysis</p>
+          <div class="chart-meta">
+            <strong>Data points:</strong> <?= array_sum(array_map('count', $metricTimelineByType)) ?>
           </div>
-        <?php endforeach; ?>
+          <div class="chart-wrap">
+            <canvas id="performanceChart"></canvas>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Average</th>
+                  <th>Min</th>
+                  <th>Max</th>
+                  <th>P95</th>
+                  <th>Samples</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($metricTableData as $metric => $data): ?>
+                  <tr>
+                    <td><strong><?= htmlspecialchars($metric) ?></strong></td>
+                    <td><?= htmlspecialchars($data['average']) ?></td>
+                    <td><?= htmlspecialchars($data['min']) ?></td>
+                    <td><?= htmlspecialchars($data['max']) ?></td>
+                    <td><?= htmlspecialchars($data['p95']) ?></td>
+                    <td><?= htmlspecialchars((string)$data['samples']) ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
+
+    <?php elseif ($report_category === 'interactions'): ?>
+      <!-- INTERACTIONS REPORT -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h2>User Interaction Distribution</h2>
+          <p>Top 15 interaction event types by frequency</p>
+          <div class="chart-meta">
+            <strong>Total interactions:</strong> <?= array_sum($interactionData) ?>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="interactionChart"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <h2>Interaction Event Breakdown</h2>
+          <p>Detailed count of each interaction type recorded</p>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Event Type</th>
+                  <th>Count</th>
+                  <th>Percentage</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php 
+                $total = array_sum($interactionData);
+                foreach ($interactionLabels as $i => $label): 
+                  $count = $interactionData[$i];
+                  $percentage = $total > 0 ? number_format(($count / $total) * 100, 1) : 0;
+                ?>
+                  <tr>
+                    <td><?= htmlspecialchars($label) ?></td>
+                    <td><strong><?= htmlspecialchars((string)$count) ?></strong></td>
+                    <td><?= htmlspecialchars($percentage) ?>%</td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    <?php elseif ($report_category === 'navigation'): ?>
+      <!-- NAVIGATION REPORT -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h2>Navigation Timing Distribution</h2>
+          <p>Histogram of page load times across frequency buckets</p>
+          <div class="chart-meta">
+            <strong>Total measurements:</strong> <?= count($navigationTimings) ?>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="navHistogramChart"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <h2>Timing Buckets Analysis</h2>
+          <p>Breakdown of navigation times by performance tier</p>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timing Range</th>
+                  <th>Sample Count</th>
+                  <th>Percentage</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php 
+                $navTotal = array_sum($navData);
+                foreach ($navLabels as $i => $bucket): 
+                  $count = $navData[$i];
+                  $percentage = $navTotal > 0 ? number_format(($count / $navTotal) * 100, 1) : 0;
+                  $status = (strpos($bucket, '0.00') !== false || strpos($bucket, '0.10') !== false) ? 'Excellent' : 
+                            (strpos($bucket, '0.20') !== false || strpos($bucket, '0.30') !== false ? 'Good' : 
+                            (strpos($bucket, '0.40') !== false ? 'Fair' : 'Needs Improvement'));
+                ?>
+                  <tr>
+                    <td><?= htmlspecialchars($bucket) ?></td>
+                    <td><strong><?= htmlspecialchars((string)$count) ?></strong></td>
+                    <td><?= htmlspecialchars($percentage) ?>%</td>
+                    <td><span class="badge <?= $status === 'Excellent' ? 'good' : ($status === 'Good' ? 'good' : 'poor') ?>"><?= htmlspecialchars($status) ?></span></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    <?php endif; ?>
+
+    <!-- ANALYST COMMENTS SECTION -->
+    <section class="comments-section">
+      <h2 class="section-title">Analyst Comments & Insights</h2>
+      <p class="section-subtitle">Expert observations and interpretations of the data</p>
+
+      <?php if ($comment_message): ?>
+        <div class="message success"><?= htmlspecialchars($comment_message) ?></div>
+      <?php endif; ?>
+
+      <?php if ($comment_error): ?>
+        <div class="message error"><?= htmlspecialchars($comment_error) ?></div>
+      <?php endif; ?>
+
+      <?php if (is_analyst() || is_admin()): ?>
+        <div class="comment-form">
+          <form method="POST">
+            <input type="hidden" name="action" value="add_comment">
+            
+            <div class="form-group">
+              <label for="content">Add Your Analysis</label>
+              <textarea id="content" name="content" required placeholder="Share your insights and observations about this report..."></textarea>
+            </div>
+
+            <div class="form-check">
+              <input type="checkbox" id="is_markdown" name="is_markdown" value="1">
+              <label for="is_markdown">Enable Markdown formatting (for emphasis, links, lists, etc.)</label>
+            </div>
+
+            <button type="submit" class="submit-btn">Post Comment</button>
+          </form>
+        </div>
+      <?php endif; ?>
+
+      <?php if (!empty($comments)): ?>
+        <div style="margin-top: 24px;">
+          <h3 style="margin: 0 0 16px; font-size: 1.1rem;">Recent Comments</h3>
+          <?php foreach ($comments as $comment): ?>
+            <div class="comment">
+              <div class="comment-header">
+                <div>
+                  <div class="comment-author"><?= htmlspecialchars($comment['display_name'] ?: $comment['username'] ?: 'Anonymous') ?></div>
+                </div>
+                <div class="comment-time"><?= date('M d, Y \a\t H:i', strtotime($comment['created_at'])) ?></div>
+              </div>
+              <div class="comment-content">
+                <?php
+                if ($comment['is_markdown']) {
+                  // Simple markdown rendering (bold, italic, links, lists)
+                  $text = htmlspecialchars($comment['content']);
+                  // Bold: **text** -> <strong>text</strong>
+                  $text = preg_replace('/\*\*(.*?)\*\*/s', '<strong>$1</strong>', $text);
+                  // Italic: *text* -> <em>text</em>
+                  $text = preg_replace('/\*(.*?)\*/s', '<em>$1</em>', $text);
+                  // Links: [text](url) -> <a href="url">text</a>
+                  $text = preg_replace('/\[(.*?)\]\((.*?)\)/s', '<a href="$2" style="color: var(--accent);">$1</a>', $text);
+                  // Line breaks
+                  $text = nl2br($text);
+                  // Lists - convert lines starting with - or * to <li>
+                  $text = preg_replace('/^\s*[-*]\s+(.*?)$/m', '<li>$1</li>', $text);
+                  $text = preg_replace('/(<li>.*?<\/li>)/s', '<ul>$1</ul>', $text);
+                  $text = str_replace('</ul>\n<ul>', '', $text);
+                  
+                  echo $text;
+                } else {
+                  echo nl2br(htmlspecialchars($comment['content']));
+                }
+                ?>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php else: ?>
+        <p style="color: var(--muted); margin-top: 24px; text-align: center;">No comments yet. Be the first to share your insights!</p>
+      <?php endif; ?>
     </section>
-
-    <div class="charts-grid">
-      <div class="chart-card">
-        <h2>User Interaction Events</h2>
-        <p>Counts the most common non-performance interaction events across all stored payloads.</p>
-        <div class="chart-wrap">
-          <canvas id="interactionChart"></canvas>
-        </div>
-      </div>
-
-      <div class="chart-card">
-        <h2>Navigation Timing Distribution</h2>
-        <p>Shows how all recorded <code>navigationTiming</code> values are distributed across timing ranges.</p>
-        <div class="chart-meta">
-          <strong>Samples:</strong> <?= htmlspecialchars((string)count($navigationTimings)) ?>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="navHistogramChart"></canvas>
-        </div>
-      </div>
-    </div>
   </div>
 
   <script>
-    const interactionLabels = <?= json_encode($interactionLabels) ?>;
-    const interactionData = <?= json_encode($interactionData) ?>;
+    // Performance Metrics Timeline Chart (only for performance report)
+    <?php if ($report_category === 'performance'): ?>
+      const metricTimelineByType = <?= json_encode($metricTimelineByType) ?>;
+      
+      // Prepare data for line chart
+      const chartDatasets = [];
+      const colors = {
+        'FCP': '#3b82f6',
+        'LCP': '#ef4444',
+        'CLS': '#8b5cf6',
+        'TBT': '#eab308',
+        'FID': '#06b6d4'
+      };
 
-    const navLabels = <?= json_encode($navLabels) ?>;
-    const navData = <?= json_encode($navData) ?>;
+      for (const [metric, data] of Object.entries(metricTimelineByType)) {
+        if (data.length > 0) {
+          chartDatasets.push({
+            label: metric,
+            data: data.map(d => d.value),
+            borderColor: colors[metric] || '#6b7280',
+            backgroundColor: colors[metric] ? colors[metric] + '20' : '#6b728020',
+            tension: 0.3,
+            fill: false,
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: colors[metric] || '#6b7280',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+          });
+        }
+      }
 
-    new Chart(document.getElementById('interactionChart'), {
-      type: 'bar',
-      data: {
-        labels: interactionLabels,
-        datasets: [{
-          label: 'Interaction Event Count',
-          data: interactionData,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true
-          }
-        },
-        scales: {
-          x: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: 'Events'
-            }
+      const allTimestamps = [];
+      for (const data of Object.values(metricTimelineByType)) {
+        for (const point of data) {
+          if (!allTimestamps.includes(point.timestamp)) {
+            allTimestamps.push(point.timestamp);
           }
         }
       }
-    });
 
-    new Chart(document.getElementById('navHistogramChart'), {
-      type: 'bar',
-      data: {
-        labels: navLabels,
-        datasets: [{
-          label: 'Navigation Timing Samples',
-          data: navData,
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true
-          }
+      new Chart(document.getElementById('performanceChart'), {
+        type: 'line',
+        data: {
+          labels: allTimestamps.map(t => new Date(t).toLocaleTimeString()),
+          datasets: chartDatasets
         },
-        scales: {
-          x: {
-            title: {
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          plugins: {
+            legend: {
               display: true,
-              text: 'Timing Range'
+              position: 'bottom'
             }
           },
-          y: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: 'Sample Count'
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Metric Value (seconds)'
+              }
             }
           }
         }
-      }
-    });
+      });
+    <?php endif; ?>
+
+    // Interaction Distribution Chart (only for interactions report)
+    <?php if ($report_category === 'interactions'): ?>
+      const interactionLabels = <?= json_encode($interactionLabels) ?>;
+      const interactionData = <?= json_encode($interactionData) ?>;
+
+      new Chart(document.getElementById('interactionChart'), {
+        type: 'doughnut',
+        data: {
+          labels: interactionLabels,
+          datasets: [{
+            data: interactionData,
+            backgroundColor: [
+              '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+              '#ec4899', '#06b6d4', '#14b8a6', '#f97316', '#6366f1',
+              '#d946ef', '#84cc16', '#0891b2', '#a855f7', '#15803d'
+            ],
+            borderWidth: 2,
+            borderColor: '#fff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right'
+            }
+          }
+        }
+      });
+    <?php endif; ?>
+
+    // Navigation Histogram Chart (only for navigation report)
+    <?php if ($report_category === 'navigation'): ?>
+      const navLabels = <?= json_encode($navLabels) ?>;
+      const navData = <?= json_encode($navData) ?>;
+
+      new Chart(document.getElementById('navHistogramChart'), {
+        type: 'bar',
+        data: {
+          labels: navLabels,
+          datasets: [{
+            label: 'Sample Count',
+            data: navData,
+            backgroundColor: '#3b82f6',
+            borderColor: '#1e40af',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Number of Samples'
+              }
+            }
+          }
+        }
+      });
+    <?php endif; ?>
   </script>
 </body>
 </html>
