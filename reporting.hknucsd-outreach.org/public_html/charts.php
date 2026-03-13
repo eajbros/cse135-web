@@ -1125,10 +1125,6 @@ foreach ($metricTimelineByType as $metric => $entries) {
       </div>
     <?php endif; ?>
 
-    <div style="padding: 12px 16px; margin-bottom: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af; font-size: 0.9rem;">
-      <strong>Tip:</strong> Click legend items to hide/show metrics. On time-series charts, scroll to zoom or drag to pan. Double-click to reset view.
-    </div>
-
     <div class="page-header">
       <h1>
         <?php
@@ -1492,25 +1488,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
           plugins: {
             legend: {
               display: true,
-              position: 'bottom',
-              onClick: function(e, legendItem, legend) {
-                const index = legendItem.datasetIndex;
-                const chart = legend.chart;
-                const meta = chart.getDatasetMeta(index);
-                meta.hidden = !meta.hidden;
-                chart.update();
-              }
-            },
-            zoom: {
-              zoom: {
-                wheel: { enabled: true, speed: 0.1 },
-                pinch: { enabled: true },
-                mode: 'xy'
-              },
-              pan: {
-                enabled: true,
-                mode: 'xy'
-              }
+              position: 'bottom'
             }
           },
           scales: {
@@ -1523,11 +1501,6 @@ foreach ($metricTimelineByType as $metric => $entries) {
             }
           }
         }
-      });
-
-      // Add double-click to reset zoom
-      document.getElementById('performanceChart').addEventListener('dblclick', () => {
-        performanceChart.resetZoom();
       });
     <?php endif; ?>
 
@@ -1556,14 +1529,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              position: 'right',
-              onClick: function(e, legendItem, legend) {
-                const index = legendItem.index;
-                const chart = legend.chart;
-                const meta = chart.getDatasetMeta(0);
-                meta.data[index].hidden = !meta.data[index].hidden;
-                chart.update();
-              }
+              position: 'right'
             }
           }
         }
