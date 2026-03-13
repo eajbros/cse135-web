@@ -515,7 +515,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // Generate PDF using dompdf
         $pdf_filename = null;
         try {
-            require_once __DIR__ . '/../../../vendor/autoload.php';
+            require_once __DIR__ . '/../vendor/autoload.php';
             
             $dompdf = new Dompdf();
             
