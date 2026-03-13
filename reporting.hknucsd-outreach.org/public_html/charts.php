@@ -51,6 +51,7 @@ try {
             analyst_id INT NOT NULL,
             report_name VARCHAR(255) NOT NULL,
             report_data LONGTEXT NOT NULL,
+            pdf_path VARCHAR(500),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (analyst_id) REFERENCES users(id) ON DELETE CASCADE,
             INDEX idx_category (category),
@@ -58,6 +59,12 @@ try {
             INDEX idx_created_at (created_at)
         )
     ");
+    
+    // Add pdf_path column if it doesn't exist (for existing tables)
+    $checkColumn = $pdo->query("SHOW COLUMNS FROM saved_reports LIKE 'pdf_path'");
+    if ($checkColumn->rowCount() === 0) {
+        $pdo->exec("ALTER TABLE saved_reports ADD COLUMN pdf_path VARCHAR(500) AFTER report_data");
+    }
 } catch (Exception $e) {
     // Table might already exist
 }
@@ -503,15 +510,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             'comments_count' => count($comments ?? [])
         ];
         
+        // Generate PDF using dompdf
+        $pdf_filename = null;
+        try {
+            require_once __DIR__ . '/../../../vendor/autoload.php';
+            use Dompdf\Dompdf;
+            
+            $dompdf = new Dompdf();
+            
+            // Create HTML content for PDF
+            $html = "<html><head><meta charset='UTF-8'><style>
+                body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+                h1 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
+                h2 { color: #4b5563; margin-top: 20px; }
+                table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+                th { background: #f5f5f5; font-weight: bold; }
+                .metadata { color: #666; font-size: 0.9em; margin-bottom: 20px; }
+                .metric-value { font-size: 1.2em; font-weight: bold; color: #2563eb; }
+            </style></head><body>";
+            
+            $html .= "<h1>Report: " . htmlspecialchars($report_name) . "</h1>";
+            $html .= "<div class='metadata'>";
+            $html .= "<p><strong>Category:</strong> " . htmlspecialchars(ucfirst($report_category)) . "</p>";
+            $html .= "<p><strong>Created by:</strong> " . htmlspecialchars($display_name) . "</p>";
+            $html .= "<p><strong>Date:</strong> " . htmlspecialchars($report_snapshot['timestamp']) . "</p>";
+            $html .= "</div>";
+            
+            if (!empty($report_snapshot['metrics'])) {
+                $html .= "<h2>Metrics Summary</h2><table><tr><th>Metric</th><th>Value</th></tr>";
+                foreach ($report_snapshot['metrics'] as $metric => $value) {
+                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td class='metric-value'>" . htmlspecialchars($value) . "</td></tr>";
+                }
+                $html .= "</table>";
+            }
+            
+            if (!empty($report_snapshot['interactions'])) {
+                $html .= "<h2>Interactions</h2><table><tr><th>Type</th><th>Count</th></tr>";
+                foreach ($report_snapshot['interactions'] as $type => $count) {
+                    if ($count > 0) {
+                        $html .= "<tr><td>" . htmlspecialchars($type) . "</td><td>" . htmlspecialchars((string)$count) . "</td></tr>";
+                    }
+                }
+                $html .= "</table>";
+            }
+            
+            $html .= "</body></html>";
+            
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('A4', 'portrait');
+            $dompdf->render();
+            
+            // Create exports directory if it doesn't exist
+            $exports_dir = __DIR__ . '/exports';
+            if (!is_dir($exports_dir)) {
+                mkdir($exports_dir, 0755, true);
+            }
+            
+            // Generate PDF filename
+            $pdf_filename = 'report-' . uniqid() . '.pdf';
+            $pdf_file = $exports_dir . '/' . $pdf_filename;
+            
+            // Save PDF
+            file_put_contents($pdf_file, $dompdf->output());
+        } catch (Exception $pdf_err) {
+            // If PDF generation fails, log it but continue
+            error_log('PDF generation failed: ' . $pdf_err->getMessage());
+        }
+        
         $stmt = $pdo->prepare("
-            INSERT INTO saved_reports (category, analyst_id, report_name, report_data)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO saved_reports (category, analyst_id, report_name, report_data, pdf_path)
+            VALUES (?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $report_category,
             $user_id,
             $report_name,
-            json_encode($report_snapshot)
+            json_encode($report_snapshot),
+            $pdf_filename
         ]);
         
         $comment_message = "Report '{$report_name}' saved successfully! View it on the dashboard.";
@@ -1488,7 +1564,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
           plugins: {
             legend: {
               display: true,
-              position: 'bottom'
+              position: 'bottom',
+              onClick: false
             }
           },
           scales: {
@@ -1529,7 +1606,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              position: 'right'
+              position: 'right',
+              onClick: false
             }
           }
         }
@@ -1558,7 +1636,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              display: true
+              display: true,
+              onClick: false
             }
           },
           scales: {

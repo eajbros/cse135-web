@@ -33,41 +33,46 @@ if (is_dir($exports_dir)) {
 
 // Fetch saved reports for this user
 $saved_reports = [];
-if ((is_analyst() || is_admin()) && $user_id) {
-  try {
-    $stmt = $pdo->prepare("
-      SELECT id, report_name, category, created_at, report_data
-      FROM saved_reports
-      WHERE analyst_id = ?
-      ORDER BY created_at DESC
-      LIMIT 6
-    ");
-    $stmt->execute([$user_id]);
-    $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
-  } catch (Exception $e) {
-    // Silently fail if table doesn't exist
-  }
+try {
+  $stmt = $pdo->prepare("
+    SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
+    FROM saved_reports
+    LEFT JOIN users u ON saved_reports.analyst_id = u.id
+    ORDER BY created_at DESC
+    LIMIT 10
+  ");
+  $stmt->execute();
+  $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+  // Silently fail if table doesn't exist
 }
 
-// Handle delete from dashboard
+// Handle delete from dashboard - only allow deletion by report owner or admin
 $success_msg = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_report') {
   try {
     $report_id = (int)($_POST['report_id'] ?? 0);
     if ($report_id > 0 && $user_id) {
-      $stmt = $pdo->prepare("DELETE FROM saved_reports WHERE id = ? AND analyst_id = ?");
-      $stmt->execute([$report_id, $user_id]);
-      $success_msg = 'Report deleted.';
-      // Refresh saved reports
-      $stmt = $pdo->prepare("
-        SELECT id, report_name, category, created_at, report_data
-        FROM saved_reports
-        WHERE analyst_id = ?
-        ORDER BY created_at DESC
-        LIMIT 6
-      ");
-      $stmt->execute([$user_id]);
-      $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+      // Check if user owns the report or is admin
+      $stmt = $pdo->prepare("SELECT analyst_id FROM saved_reports WHERE id = ?");
+      $stmt->execute([$report_id]);
+      $report = $stmt->fetch(PDO::FETCH_ASSOC);
+      
+      if ($report && ((int)$report['analyst_id'] === (int)$user_id || is_admin())) {
+        $stmt = $pdo->prepare("DELETE FROM saved_reports WHERE id = ?");
+        $stmt->execute([$report_id]);
+        $success_msg = 'Report deleted.';
+        // Refresh saved reports
+        $stmt = $pdo->prepare("
+          SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
+          FROM saved_reports
+          LEFT JOIN users u ON saved_reports.analyst_id = u.id
+          ORDER BY created_at DESC
+          LIMIT 10
+        ");
+        $stmt->execute();
+        $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+      }
     }
   } catch (Exception $e) {
     // Silently fail
@@ -436,15 +441,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div class="report-title"><?= htmlspecialchars($report['report_name']) ?></div>
                 <span class="report-badge"><?= htmlspecialchars($report['category']) ?></span>
                 <div class="report-meta">
+                  By: <?= htmlspecialchars($report['display_name'] ?? 'Unknown') ?><br>
                   Saved: <?= date('M d, Y', strtotime($report['created_at'])) ?>
                 </div>
                 <div class="report-actions">
-                  <a href="/charts.php?report=<?= urlencode($report['category']) ?>">View</a>
-                  <form method="POST" style="flex: 1; margin: 0;">
-                    <input type="hidden" name="action" value="delete_report">
-                    <input type="hidden" name="report_id" value="<?= htmlspecialchars((string)$report['id']) ?>">
-                    <button type="submit" onclick="return confirm('Delete?');">Delete</button>
-                  </form>
+                  <?php if (!empty($report['pdf_path'])): ?>
+                    <a href="/exports/<?= htmlspecialchars($report['pdf_path']) ?>" target="_blank">Download PDF</a>
+                  <?php else: ?>
+                    <a href="/charts.php?report=<?= htmlspecialchars($report['category']) ?>" style="background: #9ca3af;">View</a>
+                  <?php endif; ?>
+                  <?php if ((int)$user_id === (int)$report['analyst_id'] || is_admin()): ?>
+                    <form method="POST" style="flex: 1; margin: 0;">
+                      <input type="hidden" name="action" value="delete_report">
+                      <input type="hidden" name="report_id" value="<?= htmlspecialchars((string)$report['id']) ?>">
+                      <button type="submit" onclick="return confirm('Delete?');">Delete</button>
+                    </form>
+                  <?php endif; ?>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      <?php else: ?>
+        <?php if (!empty($saved_reports)): ?>
+          <h2 class="section-title">Saved Reports</h2>
+          <div class="reports-grid">
+            <?php foreach ($saved_reports as $report): ?>
+              <div class="report-card">
+                <div class="report-title"><?= htmlspecialchars($report['report_name']) ?></div>
+                <span class="report-badge"><?= htmlspecialchars($report['category']) ?></span>
+                <div class="report-meta">
+                  By: <?= htmlspecialchars($report['display_name'] ?? 'Unknown') ?><br>
+                  Saved: <?= date('M d, Y', strtotime($report['created_at'])) ?>
+                </div>
+                <div class="report-actions">
+                  <?php if (!empty($report['pdf_path'])): ?>
+                    <a href="/exports/<?= htmlspecialchars($report['pdf_path']) ?>" target="_blank" style="flex: 1;">Download PDF</a>
+                  <?php else: ?>
+                    <a href="/charts.php?report=<?= htmlspecialchars($report['category']) ?>" style="background: #9ca3af; flex: 1;">View</a>
+                  <?php endif; ?>
                 </div>
               </div>
             <?php endforeach; ?>
