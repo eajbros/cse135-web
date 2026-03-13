@@ -266,6 +266,29 @@ foreach ($rows as $row) {
         $score = $perf['vitalsScore'] ?? null;
         $value = is_numeric($rawValue) ? (float)$rawValue : null;
 
+        // Skip unreasonable/outlier values
+        if ($value !== null) {
+            // Define reasonable bounds for each metric
+            $maxValues = [
+                'FCP' => 15,      // First Contentful Paint: max 15 seconds
+                'LCP' => 15,      // Largest Contentful Paint: max 15 seconds
+                'CLS' => 1,       // Cumulative Layout Shift: max 1 (it's a score)
+                'TBT' => 30,      // Total Blocking Time: max 30 seconds
+                'FID' => 2,       // First Input Delay: max 2 seconds
+                'navigationTiming' => 20  // Navigation timing: max 20 seconds
+            ];
+            
+            // Filter out values exceeding reasonable bounds
+            if (isset($maxValues[$metricName]) && $value > $maxValues[$metricName]) {
+                continue;
+            }
+            
+            // Also skip negative or zero values for most metrics
+            if ($value < 0 || ($value === 0 && $metricName !== 'CLS')) {
+                continue;
+            }
+        }
+
         if ($metricName === 'navigationTiming' && $value !== null) {
             $navigationTimings[] = [
                 'value' => $value,
