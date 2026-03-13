@@ -169,7 +169,7 @@ function metric_rating(string $metric, ?float $value): string {
 
         case 'CLS':
             if ($value <= 0.1) return 'good';
-            if ($value <= 0.25) return 'needs improvement';
+            if ($value <= 0.5) return 'needs improvement';
             return 'poor';
 
         case 'TBT':
@@ -290,6 +290,12 @@ foreach ($rows as $row) {
         }
 
         if ($metricName === 'navigationTiming' && $value !== null) {
+            // Skip unreasonable navigation times (cap at 20 seconds)
+            $maxNavTime = 20;
+            if ($value > $maxNavTime) {
+                continue;
+            }
+            
             $navigationTimings[] = [
                 'value' => $value,
                 'timestamp' => $row['received_at']
