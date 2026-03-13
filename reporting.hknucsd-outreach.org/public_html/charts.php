@@ -405,6 +405,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
     $metricTimelineByType[$metric] = array_slice($entries, -20);
 }
 
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
