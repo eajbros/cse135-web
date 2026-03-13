@@ -541,7 +541,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if (!empty($report_snapshot['metrics'])) {
                 $html .= "<h2>Metrics Summary</h2><table><tr><th>Metric</th><th>Value</th></tr>";
                 foreach ($report_snapshot['metrics'] as $metric => $value) {
-                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td class='metric-value'>" . htmlspecialchars($value) . "</td></tr>";
+                    $val_str = is_array($value) ? implode(', ', array_map('strval', $value)) : (string)$value;
+                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td class='metric-value'>" . htmlspecialchars($val_str) . "</td></tr>";
                 }
                 $html .= "</table>";
             }
