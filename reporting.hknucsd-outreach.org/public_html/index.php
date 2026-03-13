@@ -9,51 +9,24 @@ $role = get_user_role();
 $avatar_char = strtoupper(substr($display_name, 0, 1));
 $user_id = $_SESSION['user_id'] ?? null;
 
-// Fetch saved reports and merge with legacy exports
+// Fetch all PDFs from exports folder (both saved reports and legacy exports)
 $all_downloads = [];
-
-// Fetch saved reports from database
-try {
-  $stmt = $pdo->prepare("
-    SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
-    FROM saved_reports
-    LEFT JOIN users u ON saved_reports.analyst_id = u.id
-    ORDER BY created_at DESC
-  ");
-  $stmt->execute();
-  $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
-  
-  foreach ($saved_reports as $report) {
-    $all_downloads[] = [
-      'type' => 'saved_report',
-      'name' => $report['report_name'],
-      'category' => $report['category'],
-      'creator' => $report['display_name'] ?? 'Unknown',
-      'date' => strtotime($report['created_at']),
-      'date_formatted' => date('M d, Y', strtotime($report['created_at'])),
-      'url' => '/exports/' . htmlspecialchars($report['pdf_path']),
-      'id' => $report['id'],
-      'analyst_id' => $report['analyst_id']
-    ];
-  }
-} catch (Exception $e) {
-  // Silently fail if table doesn't exist
-  $saved_reports = [];
-}
-
-// Fetch legacy exports from filesystem
 $exports_dir = __DIR__ . '/exports';
+
 if (is_dir($exports_dir)) {
-  $files = glob($exports_dir . '/chart-export-*.pdf') ?: [];
+  $files = glob($exports_dir . '/*.pdf') ?: [];
   
   foreach ($files as $file) {
     $basename = basename($file);
     $modified = filemtime($file);
     
+    // Determine if this is a saved report (starts with 'report-') or legacy export (starts with 'chart-export-')
+    $is_saved_report = strpos($basename, 'report-') === 0;
+    
     $all_downloads[] = [
-      'type' => 'legacy_export',
+      'type' => $is_saved_report ? 'saved_report' : 'legacy_export',
       'name' => $basename,
-      'category' => 'Export',
+      'category' => $is_saved_report ? 'Report' : 'Export',
       'creator' => 'System',
       'date' => $modified ?: 0,
       'date_formatted' => $modified ? date('M d, Y', $modified) : 'Unknown',
@@ -64,65 +37,37 @@ if (is_dir($exports_dir)) {
   }
 }
 
-// Sort all downloads by date descending
+// Sort by date descending
 usort($all_downloads, function($a, $b) {
   return $b['date'] <=> $a['date'];
 });
 
-// Keep only the 10 most recent
-$all_downloads = array_slice($all_downloads, 0, 10);
-
-// Handle delete from dashboard - only allow deletion by report owner or admin
+// Handle delete from dashboard - only allow deletion by admins
 $success_msg = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_report') {
-  try {
-    $report_id = (int)($_POST['report_id'] ?? 0);
-    if ($report_id > 0 && $user_id) {
-      // Check if user owns the report or is admin
-      $stmt = $pdo->prepare("SELECT analyst_id FROM saved_reports WHERE id = ?");
-      $stmt->execute([$report_id]);
-      $report = $stmt->fetch(PDO::FETCH_ASSOC);
-      
-      if ($report && ((int)$report['analyst_id'] === (int)$user_id || is_admin())) {
-        $stmt = $pdo->prepare("DELETE FROM saved_reports WHERE id = ?");
-        $stmt->execute([$report_id]);
-        $success_msg = 'Report deleted.';
-        // Rebuild all_downloads list
+  if (is_admin()) {
+    $filename = $_POST['filename'] ?? '';
+    if ($filename && strpos($filename, '/') === false && strpos($filename, '\\') === false) {
+      $filepath = $exports_dir . '/' . $filename;
+      // Verify file is in exports folder
+      if (realpath($filepath) && strpos(realpath($filepath), realpath($exports_dir)) === 0) {
+        unlink($filepath);
+        $success_msg = 'File deleted.';
+        // Refresh list
         $all_downloads = [];
-        $stmt = $pdo->prepare("
-          SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
-          FROM saved_reports
-          LEFT JOIN users u ON saved_reports.analyst_id = u.id
-          ORDER BY created_at DESC
-        ");
-        $stmt->execute();
-        $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        foreach ($saved_reports as $r) {
-          $all_downloads[] = [
-            'type' => 'saved_report',
-            'name' => $r['report_name'],
-            'category' => $r['category'],
-            'creator' => $r['display_name'] ?? 'Unknown',
-            'date' => strtotime($r['created_at']),
-            'date_formatted' => date('M d, Y', strtotime($r['created_at'])),
-            'url' => '/exports/' . htmlspecialchars($r['pdf_path']),
-            'id' => $r['id'],
-            'analyst_id' => $r['analyst_id']
-          ];
-        }
-        
-        // Re-add legacy exports
-        $exports_dir = __DIR__ . '/exports';
         if (is_dir($exports_dir)) {
-          $files = glob($exports_dir . '/chart-export-*.pdf') ?: [];
+          $files = glob($exports_dir . '/*.pdf') ?: [];
+          
           foreach ($files as $file) {
             $basename = basename($file);
             $modified = filemtime($file);
+            
+            $is_saved_report = strpos($basename, 'report-') === 0;
+            
             $all_downloads[] = [
-              'type' => 'legacy_export',
+              'type' => $is_saved_report ? 'saved_report' : 'legacy_export',
               'name' => $basename,
-              'category' => 'Export',
+              'category' => $is_saved_report ? 'Report' : 'Export',
               'creator' => 'System',
               'date' => $modified ?: 0,
               'date_formatted' => $modified ? date('M d, Y', $modified) : 'Unknown',
@@ -136,11 +81,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         usort($all_downloads, function($a, $b) {
           return $b['date'] <=> $a['date'];
         });
-        $all_downloads = array_slice($all_downloads, 0, 10);
       }
     }
-  } catch (Exception $e) {
-    // Silently fail
   }
 }
 ?>
@@ -468,15 +410,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div class="report-title"><?= htmlspecialchars($item['name']) ?></div>
                 <span class="report-badge"><?= htmlspecialchars($item['category']) ?></span>
                 <div class="report-meta">
-                  By: <?= htmlspecialchars($item['creator']) ?><br>
                   Date: <?= htmlspecialchars($item['date_formatted']) ?>
                 </div>
                 <div class="report-actions">
                   <a href="<?= htmlspecialchars($item['url']) ?>" target="_blank">Download</a>
-                  <?php if ($item['type'] === 'saved_report' && ((int)$user_id === (int)$item['analyst_id'] || is_admin())): ?>
+                  <?php if (is_admin()): ?>
                     <form method="POST" style="flex: 1; margin: 0;">
                       <input type="hidden" name="action" value="delete_report">
-                      <input type="hidden" name="report_id" value="<?= htmlspecialchars((string)$item['id']) ?>">
+                      <input type="hidden" name="filename" value="<?= htmlspecialchars(basename($item['url'])) ?>">
                       <button type="submit" onclick="return confirm('Delete?');">Delete</button>
                     </form>
                   <?php endif; ?>
@@ -494,7 +435,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div class="report-title"><?= htmlspecialchars($item['name']) ?></div>
                 <span class="report-badge"><?= htmlspecialchars($item['category']) ?></span>
                 <div class="report-meta">
-                  By: <?= htmlspecialchars($item['creator']) ?><br>
                   Date: <?= htmlspecialchars($item['date_formatted']) ?>
                 </div>
                 <div class="report-actions">

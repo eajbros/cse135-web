@@ -592,7 +592,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdf_filename
         ]);
         
-        $comment_message = "Report '{$report_name}' saved successfully! View it on the dashboard.";
+        $comment_message = "Report '{$report_name}' saved successfully! Download it from the dashboard.";
     } catch (Exception $e) {
         $comment_error = $e->getMessage();
     }
