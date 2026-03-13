@@ -569,8 +569,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 mkdir($exports_dir, 0755, true);
             }
             
-            // Generate PDF filename
-            $pdf_filename = 'report-' . uniqid() . '.pdf';
+            // Generate PDF filename using report name
+            // Sanitize name: keep alphanumeric, spaces, hyphens, and underscores
+            $safe_name = preg_replace('/[^a-zA-Z0-9\s\-_]/', '', $report_name);
+            $safe_name = preg_replace('/\s+/', '-', trim($safe_name));
+            $safe_name = substr($safe_name, 0, 100); // Limit length
+            if (empty($safe_name)) {
+                $safe_name = 'report';
+            }
+            $pdf_filename = 'report-' . $safe_name . '-' . uniqid() . '.pdf';
             $pdf_file = $exports_dir . '/' . $pdf_filename;
             
             // Save PDF
