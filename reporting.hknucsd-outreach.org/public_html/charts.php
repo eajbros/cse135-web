@@ -10,50 +10,24 @@ if (!is_admin() && !is_analyst()) {
 
 require_once __DIR__ . '/db.php';
 
-// Initialize reports and comments tables if they don't exist
+// Ensure report_comments table exists with correct schema
 try {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS reports (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            category VARCHAR(50) NOT NULL UNIQUE,
-            title VARCHAR(255) NOT NULL,
-            description VARCHAR(500),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_category (category)
-        )
-    ");
-
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS report_comments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             category VARCHAR(50) NOT NULL,
-            analyst_id INT,
+            analyst_id INT NOT NULL,
             content LONGTEXT NOT NULL,
             is_markdown BOOLEAN DEFAULT FALSE,
             is_published BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (analyst_id) REFERENCES users(id) ON DELETE CASCADE,
             INDEX idx_category (category),
-            INDEX idx_analyst_id (analyst_id)
+            INDEX idx_analyst_id (analyst_id),
+            INDEX idx_created_at (created_at)
         )
     ");
-
-    // Upsert default reports
-    $reports = [
-        ['performance', 'Performance Metrics Summary', 'Core Web Vitals and Key Performance Indicators'],
-        ['interactions', 'User Interactions Analysis', 'User behavior patterns and engagement metrics'],
-        ['navigation', 'Navigation Performance', 'Page load and resource timing analysis']
-    ];
-    
-    foreach ($reports as [$cat, $title, $desc]) {
-        $stmt = $pdo->prepare("
-            INSERT INTO reports (category, title, description) 
-            VALUES (?, ?, ?) 
-            ON DUPLICATE KEY UPDATE title=?, description=?
-        ");
-        $stmt->execute([$cat, $title, $desc, $title, $desc]);
-    }
 } catch (Exception $e) {
     // Table might already exist, continue
 }
