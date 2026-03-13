@@ -527,6 +527,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             require_once __DIR__ . '/../vendor/autoload.php';
             
             $dompdf = new Dompdf();
+            // Enable remote image loading for QuickChart
+            $dompdf->setOptions(['isRemoteEnabled' => true]);
             
             // Create HTML content for PDF
             $html = "<html><head><meta charset='UTF-8'><style>
