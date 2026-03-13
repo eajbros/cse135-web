@@ -2,6 +2,8 @@
 require_once __DIR__ . '/auth.php';
 require_login();
 
+use Dompdf\Dompdf;
+
 // Only super admin and analysts can view reports
 if (!is_admin() && !is_analyst()) {
     http_response_code(403);
@@ -514,7 +516,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $pdf_filename = null;
         try {
             require_once __DIR__ . '/../../../vendor/autoload.php';
-            use Dompdf\Dompdf;
             
             $dompdf = new Dompdf();
             

@@ -9,43 +9,69 @@ $role = get_user_role();
 $avatar_char = strtoupper(substr($display_name, 0, 1));
 $user_id = $_SESSION['user_id'] ?? null;
 
-$recent_exports = [];
-$exports_dir = __DIR__ . '/exports';
+// Fetch saved reports and merge with legacy exports
+$all_downloads = [];
 
-if (is_dir($exports_dir)) {
-  $files = glob($exports_dir . '/chart-export-*.pdf') ?: [];
-
-  usort($files, static function (string $a, string $b): int {
-    return (filemtime($b) ?: 0) <=> (filemtime($a) ?: 0);
-  });
-
-  foreach (array_slice($files, 0, 5) as $file) {
-    $basename = basename($file);
-    $modified = filemtime($file);
-
-    $recent_exports[] = [
-      'url' => '/exports/' . rawurlencode($basename),
-      'name' => $basename,
-      'modified' => $modified ? date('Y-m-d H:i', $modified) : 'Unknown time',
-    ];
-  }
-}
-
-// Fetch saved reports for this user
-$saved_reports = [];
+// Fetch saved reports from database
 try {
   $stmt = $pdo->prepare("
     SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
     FROM saved_reports
     LEFT JOIN users u ON saved_reports.analyst_id = u.id
+    WHERE pdf_path IS NOT NULL
     ORDER BY created_at DESC
-    LIMIT 10
   ");
   $stmt->execute();
   $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  
+  foreach ($saved_reports as $report) {
+    $all_downloads[] = [
+      'type' => 'saved_report',
+      'name' => $report['report_name'],
+      'category' => $report['category'],
+      'creator' => $report['display_name'] ?? 'Unknown',
+      'date' => strtotime($report['created_at']),
+      'date_formatted' => date('M d, Y', strtotime($report['created_at'])),
+      'url' => '/exports/' . htmlspecialchars($report['pdf_path']),
+      'id' => $report['id'],
+      'analyst_id' => $report['analyst_id']
+    ];
+  }
 } catch (Exception $e) {
   // Silently fail if table doesn't exist
+  $saved_reports = [];
 }
+
+// Fetch legacy exports from filesystem
+$exports_dir = __DIR__ . '/exports';
+if (is_dir($exports_dir)) {
+  $files = glob($exports_dir . '/chart-export-*.pdf') ?: [];
+  
+  foreach ($files as $file) {
+    $basename = basename($file);
+    $modified = filemtime($file);
+    
+    $all_downloads[] = [
+      'type' => 'legacy_export',
+      'name' => $basename,
+      'category' => 'Export',
+      'creator' => 'System',
+      'date' => $modified ?: 0,
+      'date_formatted' => $modified ? date('M d, Y', $modified) : 'Unknown',
+      'url' => '/exports/' . rawurlencode($basename),
+      'id' => null,
+      'analyst_id' => null
+    ];
+  }
+}
+
+// Sort all downloads by date descending
+usort($all_downloads, function($a, $b) {
+  return $b['date'] <=> $a['date'];
+});
+
+// Keep only the 10 most recent
+$all_downloads = array_slice($all_downloads, 0, 10);
 
 // Handle delete from dashboard - only allow deletion by report owner or admin
 $success_msg = '';
@@ -62,16 +88,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt = $pdo->prepare("DELETE FROM saved_reports WHERE id = ?");
         $stmt->execute([$report_id]);
         $success_msg = 'Report deleted.';
-        // Refresh saved reports
+        // Rebuild all_downloads list
+        $all_downloads = [];
         $stmt = $pdo->prepare("
           SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
           FROM saved_reports
           LEFT JOIN users u ON saved_reports.analyst_id = u.id
+          WHERE pdf_path IS NOT NULL
           ORDER BY created_at DESC
-          LIMIT 10
         ");
         $stmt->execute();
         $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($saved_reports as $r) {
+          $all_downloads[] = [
+            'type' => 'saved_report',
+            'name' => $r['report_name'],
+            'category' => $r['category'],
+            'creator' => $r['display_name'] ?? 'Unknown',
+            'date' => strtotime($r['created_at']),
+            'date_formatted' => date('M d, Y', strtotime($r['created_at'])),
+            'url' => '/exports/' . htmlspecialchars($r['pdf_path']),
+            'id' => $r['id'],
+            'analyst_id' => $r['analyst_id']
+          ];
+        }
+        
+        // Re-add legacy exports
+        $exports_dir = __DIR__ . '/exports';
+        if (is_dir($exports_dir)) {
+          $files = glob($exports_dir . '/chart-export-*.pdf') ?: [];
+          foreach ($files as $file) {
+            $basename = basename($file);
+            $modified = filemtime($file);
+            $all_downloads[] = [
+              'type' => 'legacy_export',
+              'name' => $basename,
+              'category' => 'Export',
+              'creator' => 'System',
+              'date' => $modified ?: 0,
+              'date_formatted' => $modified ? date('M d, Y', $modified) : 'Unknown',
+              'url' => '/exports/' . rawurlencode($basename),
+              'id' => null,
+              'analyst_id' => null
+            ];
+          }
+        }
+        
+        usort($all_downloads, function($a, $b) {
+          return $b['date'] <=> $a['date'];
+        });
+        $all_downloads = array_slice($all_downloads, 0, 10);
       }
     }
   } catch (Exception $e) {
@@ -247,44 +314,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
       margin-bottom: 0;
     }
 
-    .exports-title {
-      margin: 16px 0 10px;
-      font-size: 1rem;
-      font-weight: 700;
-    }
-
-    .exports-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: grid;
-      gap: 10px;
-    }
-
-    .exports-item {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
-      background: #f9fafb;
-    }
-
-    .exports-link {
-      text-decoration: none;
-      color: var(--accent);
-      font-weight: 600;
-      word-break: break-all;
-    }
-
-    .exports-link:hover {
-      text-decoration: underline;
-    }
-
-    .exports-meta {
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 0.88rem;
-    }
-
     .section-title {
       margin: 24px 0 12px;
       font-size: 1.1rem;
@@ -431,29 +460,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
       <?php endif; ?>
 
       <?php if (is_analyst() || is_admin()): ?>
-        <h2 class="section-title">Saved Reports</h2>
-        <?php if (empty($saved_reports)): ?>
+        <h2 class="section-title">Saved Reports & Downloads</h2>
+        <?php if (empty($all_downloads)): ?>
           <p>No saved reports yet. <a href="/charts.php" style="color: var(--accent); font-weight: 600;">Create one from Charts</a></p>
         <?php else: ?>
           <div class="reports-grid">
-            <?php foreach ($saved_reports as $report): ?>
+            <?php foreach ($all_downloads as $item): ?>
               <div class="report-card">
-                <div class="report-title"><?= htmlspecialchars($report['report_name']) ?></div>
-                <span class="report-badge"><?= htmlspecialchars($report['category']) ?></span>
+                <div class="report-title"><?= htmlspecialchars($item['name']) ?></div>
+                <span class="report-badge"><?= htmlspecialchars($item['category']) ?></span>
                 <div class="report-meta">
-                  By: <?= htmlspecialchars($report['display_name'] ?? 'Unknown') ?><br>
-                  Saved: <?= date('M d, Y', strtotime($report['created_at'])) ?>
+                  By: <?= htmlspecialchars($item['creator']) ?><br>
+                  Date: <?= htmlspecialchars($item['date_formatted']) ?>
                 </div>
                 <div class="report-actions">
-                  <?php if (!empty($report['pdf_path'])): ?>
-                    <a href="/exports/<?= htmlspecialchars($report['pdf_path']) ?>" target="_blank">Download PDF</a>
-                  <?php else: ?>
-                    <a href="/charts.php?report=<?= htmlspecialchars($report['category']) ?>" style="background: #9ca3af;">View</a>
-                  <?php endif; ?>
-                  <?php if ((int)$user_id === (int)$report['analyst_id'] || is_admin()): ?>
+                  <a href="<?= htmlspecialchars($item['url']) ?>" target="_blank">Download</a>
+                  <?php if ($item['type'] === 'saved_report' && ((int)$user_id === (int)$item['analyst_id'] || is_admin())): ?>
                     <form method="POST" style="flex: 1; margin: 0;">
                       <input type="hidden" name="action" value="delete_report">
-                      <input type="hidden" name="report_id" value="<?= htmlspecialchars((string)$report['id']) ?>">
+                      <input type="hidden" name="report_id" value="<?= htmlspecialchars((string)$item['id']) ?>">
                       <button type="submit" onclick="return confirm('Delete?');">Delete</button>
                     </form>
                   <?php endif; ?>
@@ -463,44 +488,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
           </div>
         <?php endif; ?>
       <?php else: ?>
-        <?php if (!empty($saved_reports)): ?>
-          <h2 class="section-title">Saved Reports</h2>
+        <?php if (!empty($all_downloads)): ?>
+          <h2 class="section-title">Saved Reports & Downloads</h2>
           <div class="reports-grid">
-            <?php foreach ($saved_reports as $report): ?>
+            <?php foreach ($all_downloads as $item): ?>
               <div class="report-card">
-                <div class="report-title"><?= htmlspecialchars($report['report_name']) ?></div>
-                <span class="report-badge"><?= htmlspecialchars($report['category']) ?></span>
+                <div class="report-title"><?= htmlspecialchars($item['name']) ?></div>
+                <span class="report-badge"><?= htmlspecialchars($item['category']) ?></span>
                 <div class="report-meta">
-                  By: <?= htmlspecialchars($report['display_name'] ?? 'Unknown') ?><br>
-                  Saved: <?= date('M d, Y', strtotime($report['created_at'])) ?>
+                  By: <?= htmlspecialchars($item['creator']) ?><br>
+                  Date: <?= htmlspecialchars($item['date_formatted']) ?>
                 </div>
                 <div class="report-actions">
-                  <?php if (!empty($report['pdf_path'])): ?>
-                    <a href="/exports/<?= htmlspecialchars($report['pdf_path']) ?>" target="_blank" style="flex: 1;">Download PDF</a>
-                  <?php else: ?>
-                    <a href="/charts.php?report=<?= htmlspecialchars($report['category']) ?>" style="background: #9ca3af; flex: 1;">View</a>
-                  <?php endif; ?>
+                  <a href="<?= htmlspecialchars($item['url']) ?>" target="_blank" style="flex: 1;">Download</a>
                 </div>
               </div>
             <?php endforeach; ?>
           </div>
         <?php endif; ?>
-      <?php endif; ?>
-
-      <h2 class="section-title">Recent PDF Exports</h2>
-      <?php if (empty($recent_exports)): ?>
-        <p>No exported PDFs available yet.</p>
-      <?php else: ?>
-        <ul class="exports-list">
-          <?php foreach ($recent_exports as $export): ?>
-            <li class="exports-item">
-              <a class="exports-link" href="<?= htmlspecialchars($export['url']) ?>" target="_blank" rel="noopener">
-                <?= htmlspecialchars($export['name']) ?>
-              </a>
-              <div class="exports-meta">Generated: <?= htmlspecialchars($export['modified']) ?></div>
-            </li>
-          <?php endforeach; ?>
-        </ul>
       <?php endif; ?>
     </div>
   </div>
