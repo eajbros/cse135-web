@@ -237,15 +237,15 @@ if (is_dir($exports_dir)) {
 </head>
 <body>
   <nav class="navbar">
-    <div class="navbar-brand">📈 Dashboard</div>
+    <div class="navbar-brand">Dashboard</div>
     <div class="navbar-content">
       <div class="navbar-nav">
         <?php if (is_admin() || is_analyst()): ?>
-          <a href="/charts.php">📊 Charts</a>
-          <a href="/report.php">📋 Data Table</a>
+          <a href="/charts.php">Charts</a>
+          <a href="/report.php">Data Table</a>
         <?php endif; ?>
         <?php if (is_admin()): ?>
-          <a href="/users.php">👥 Manage Users</a>
+          <a href="/users.php">Manage Users</a>
         <?php endif; ?>
       </div>
       <div class="user-info">

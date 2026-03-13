@@ -507,12 +507,12 @@ if ($action === 'edit' && !empty($_GET['user_id'])) {
 </head>
 <body>
   <nav class="navbar">
-    <div class="navbar-brand">👥 User Management</div>
+    <div class="navbar-brand">User Management</div>
     <div class="navbar-content">
       <div class="navbar-nav">
-        <a href="/index.php">← Dashboard</a>
-        <a href="/charts.php">📊 Charts</a>
-        <a href="/report.php">📋 Reports</a>
+        <a href="/index.php">Dashboard</a>
+        <a href="/charts.php">Charts</a>
+        <a href="/report.php">Reports</a>
       </div>
       <div class="user-info">
         <div class="user-avatar"><?= htmlspecialchars($avatar_char) ?></div>

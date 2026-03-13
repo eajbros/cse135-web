@@ -32,22 +32,31 @@ try {
     // Table might already exist, continue
 }
 
-$report_category = $_GET['report'] ?? 'performance';
-
-// Validate report category
 $allowed_categories = ['performance', 'interactions', 'navigation'];
-if (!in_array($report_category, $allowed_categories)) {
-    http_response_code(400);
-    die('Invalid report category.');
-}
 
-// Check analyst access control
+// Determine what reports the user can access
+$accessible_categories = $allowed_categories;
 if (is_analyst()) {
     $allowed_sections = $_SESSION['allowed_sections'] ?? [];
-    if (!in_array($report_category, $allowed_sections)) {
+    $accessible_categories = array_intersect($allowed_categories, $allowed_sections);
+    if (empty($accessible_categories)) {
         http_response_code(403);
-        die('Access denied. You do not have permission to view the ' . htmlspecialchars($report_category) . ' report.');
+        die('Access denied. You do not have permission to view any reports.');
     }
+}
+
+// Determine which report to display
+$report_category = $_GET['report'] ?? null;
+
+// If not specified or not accessible, use first accessible category
+if (!$report_category || !in_array($report_category, $accessible_categories)) {
+    $report_category = reset($accessible_categories);
+}
+
+// Validate report category is in accessible list
+if (!in_array($report_category, $accessible_categories)) {
+    http_response_code(403);
+    die('Access denied. You do not have permission to view the ' . htmlspecialchars($report_category) . ' report.');
 }
 
 function display_event_type(string $type): string {
@@ -955,11 +964,11 @@ foreach ($metricTimelineByType as $metric => $entries) {
 </head>
 <body>
   <nav class="navbar">
-    <div class="navbar-brand">📊 Reporting Dashboard</div>
+    <div class="navbar-brand">Reporting Dashboard</div>
     <div class="navbar-content">
       <div class="navbar-nav">
-        <a href="/index.php">← Dashboard</a>
-        <a href="/report.php">📋 Data Table</a>
+        <a href="/index.php">Dashboard</a>
+        <a href="/report.php">Data Table</a>
       </div>
       <div class="user-info">
         <div class="user-avatar"><?= strtoupper(substr($display_name, 0, 1)) ?></div>
@@ -976,13 +985,12 @@ foreach ($metricTimelineByType as $metric => $entries) {
     <div class="page-header">
       <h1>
         <?php
-        $icons = ['performance' => '⚡', 'interactions' => '👆', 'navigation' => '🚀'];
         $titles = [
           'performance' => 'Performance Metrics Summary',
           'interactions' => 'User Interactions Analysis',
           'navigation' => 'Navigation Performance'
         ];
-        echo $icons[$report_category] ?? '📊';
+        echo '';
         ?> 
         <?= htmlspecialchars($titles[$report_category] ?? 'Report') ?>
       </h1>
@@ -1000,9 +1008,17 @@ foreach ($metricTimelineByType as $metric => $entries) {
 
     <!-- Report Navigation Tabs -->
     <div class="nav-tabs">
-      <button class="nav-tab <?= $report_category === 'performance' ? 'active' : '' ?>" onclick="location.href='?report=performance'">⚡ Performance</button>
-      <button class="nav-tab <?= $report_category === 'interactions' ? 'active' : '' ?>" onclick="location.href='?report=interactions'">👆 Interactions</button>
-      <button class="nav-tab <?= $report_category === 'navigation' ? 'active' : '' ?>" onclick="location.href='?report=navigation'">🚀 Navigation</button>
+      <?php
+      $tab_labels = [
+        'performance' => 'Performance',
+        'interactions' => 'Interactions',
+        'navigation' => 'Navigation'
+      ];
+      foreach ($accessible_categories as $cat): ?>
+        <button class="nav-tab <?= $report_category === $cat ? 'active' : '' ?>" onclick="location.href='?report=<?= htmlspecialchars($cat) ?>'">
+          <?= htmlspecialchars($tab_labels[$cat]) ?>
+        </button>
+      <?php endforeach; ?>
     </div>
 
     <?php if ($report_category === 'performance'): ?>

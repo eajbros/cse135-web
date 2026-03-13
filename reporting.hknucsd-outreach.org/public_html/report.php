@@ -295,11 +295,11 @@ $role = get_user_role();
 </head>
 <body>
   <nav class="navbar">
-    <div class="navbar-brand">📋 Collected Beacon Data</div>
+    <div class="navbar-brand">Collected Beacon Data</div>
     <div class="navbar-content">
       <div class="navbar-nav">
-        <a href="/index.php">← Dashboard</a>
-        <a href="/charts.php">📊 Charts</a>
+        <a href="/index.php">Dashboard</a>
+        <a href="/charts.php">Charts</a>
       </div>
       <div class="user-info">
         <div class="user-avatar"><?= strtoupper(substr($display_name, 0, 1)) ?></div>
