@@ -16,6 +16,17 @@ $exports_dir = __DIR__ . '/exports';
 if (is_dir($exports_dir)) {
   $files = glob($exports_dir . '/*.pdf') ?: [];
   
+  // Prepare a lookup for saved reports from database
+  $saved_reports_lookup = [];
+  try {
+    $stmt = $pdo->query("SELECT pdf_path, report_name FROM saved_reports WHERE pdf_path IS NOT NULL");
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+      $saved_reports_lookup[$row['pdf_path']] = $row['report_name'];
+    }
+  } catch (Exception $e) {
+    // If query fails, continue with filesystem names only
+  }
+  
   foreach ($files as $file) {
     $basename = basename($file);
     $modified = filemtime($file);
@@ -23,9 +34,16 @@ if (is_dir($exports_dir)) {
     // Determine if this is a saved report (starts with 'report-') or legacy export (starts with 'chart-export-')
     $is_saved_report = strpos($basename, 'report-') === 0;
     
+    // Get pretty name from database if available, otherwise use filename
+    $display_name = $basename;
+    if ($is_saved_report && isset($saved_reports_lookup[$basename])) {
+      $display_name = $saved_reports_lookup[$basename];
+    }
+    
     $all_downloads[] = [
       'type' => $is_saved_report ? 'saved_report' : 'legacy_export',
-      'name' => $basename,
+      'name' => $display_name,
+      'filename' => $basename,
       'category' => $is_saved_report ? 'Report' : 'Export',
       'creator' => 'System',
       'date' => $modified ?: 0,
@@ -58,15 +76,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (is_dir($exports_dir)) {
           $files = glob($exports_dir . '/*.pdf') ?: [];
           
+          // Refresh lookup
+          $saved_reports_lookup = [];
+          try {
+            $stmt = $pdo->query("SELECT pdf_path, report_name FROM saved_reports WHERE pdf_path IS NOT NULL");
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+              $saved_reports_lookup[$row['pdf_path']] = $row['report_name'];
+            }
+          } catch (Exception $e) {
+            // If query fails, continue with filesystem names only
+          }
+          
           foreach ($files as $file) {
             $basename = basename($file);
             $modified = filemtime($file);
             
             $is_saved_report = strpos($basename, 'report-') === 0;
             
+            // Get pretty name from database if available, otherwise use filename
+            $display_name = $basename;
+            if ($is_saved_report && isset($saved_reports_lookup[$basename])) {
+              $display_name = $saved_reports_lookup[$basename];
+            }
+            
             $all_downloads[] = [
               'type' => $is_saved_report ? 'saved_report' : 'legacy_export',
-              'name' => $basename,
+              'name' => $display_name,
+              'filename' => $basename,
               'category' => $is_saved_report ? 'Report' : 'Export',
               'creator' => 'System',
               'date' => $modified ?: 0,
@@ -417,7 +453,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                   <?php if (is_admin()): ?>
                     <form method="POST" style="flex: 1; margin: 0;">
                       <input type="hidden" name="action" value="delete_report">
-                      <input type="hidden" name="filename" value="<?= htmlspecialchars(basename($item['url'])) ?>">
+                      <input type="hidden" name="filename" value="<?= htmlspecialchars($item['filename']) ?>">
                       <button type="submit" onclick="return confirm('Delete?');">Delete</button>
                     </form>
                   <?php endif; ?>
