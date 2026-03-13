@@ -538,6 +538,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 th { background: #f5f5f5; font-weight: bold; }
                 .metadata { color: #666; font-size: 0.9em; margin-bottom: 20px; }
                 .metric-value { font-size: 1.2em; font-weight: bold; color: #2563eb; }
+                .chart-img { margin: 20px 0; width: 100%; max-width: 600px; page-break-inside: avoid; }
             </style></head><body>";
             
             $html .= "<h1>Report: " . htmlspecialchars($report_name) . "</h1>";
@@ -549,20 +550,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             
             // Display category-specific content
             if ($report_snapshot['data_type'] === 'metrics' && !empty($report_snapshot['metrics'])) {
-                $html .= "<h2>Performance Metrics</h2><table><tr><th>Metric</th><th>Value</th><th>Rating</th></tr>";
+                // Performance metrics chart
+                $metricChartConfig = [
+                    'type' => 'bar',
+                    'data' => [
+                        'labels' => array_keys($report_snapshot['metrics']),
+                        'datasets' => [[
+                            'label' => 'Average Value',
+                            'data' => array_map(fn($d) => is_array($d) ? ($d['average'] ?? 0) : 0, $report_snapshot['metrics']),
+                            'backgroundColor' => '#3b82f6',
+                            'borderColor' => '#1e40af',
+                            'borderWidth' => 1
+                        ]]
+                    ],
+                    'options' => ['responsive' => true, 'maintainAspectRatio' => true]
+                ];
+                $chartUrl = 'https://quickchart.io/chart?c=' . urlencode(json_encode($metricChartConfig)) . '&w=800&h=400';
+                
+                $html .= "<h2>Performance Metrics Chart</h2>";
+                $html .= "<img src='" . htmlspecialchars($chartUrl) . "' class='chart-img' alt='Performance Metrics Chart'>";
+                
+                $html .= "<h2>Detailed Metrics Table</h2><table><tr><th>Metric</th><th>Value</th><th>Rating</th><th>Samples</th></tr>";
                 foreach ($report_snapshot['metrics'] as $metric => $data) {
                     if (is_array($data)) {
                         $val_str = $data['formatted'] ?? '—';
                         $rating = $data['rating'] ?? 'no data';
+                        $samples = $data['samples'] ?? 0;
                     } else {
                         $val_str = (string)$data;
                         $rating = 'n/a';
+                        $samples = 0;
                     }
-                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td>" . htmlspecialchars($val_str) . "</td><td>" . htmlspecialchars($rating) . "</td></tr>";
+                    $html .= "<tr><td>" . htmlspecialchars($metric) . "</td><td>" . htmlspecialchars($val_str) . "</td><td>" . htmlspecialchars($rating) . "</td><td>" . htmlspecialchars((string)$samples) . "</td></tr>";
                 }
                 $html .= "</table>";
             } elseif ($report_snapshot['data_type'] === 'interactions' && !empty($report_snapshot['interactions'])) {
-                $html .= "<h2>User Interactions</h2><table><tr><th>Interaction Type</th><th>Count</th></tr>";
+                // Behavioral interactions chart
+                $interactionChartConfig = [
+                    'type' => 'doughnut',
+                    'data' => [
+                        'labels' => array_keys($report_snapshot['interactions']),
+                        'datasets' => [[
+                            'data' => array_values($report_snapshot['interactions']),
+                            'backgroundColor' => ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#f97316', '#6366f1', '#d946ef', '#84cc16', '#0891b2', '#a855f7', '#15803d'],
+                            'borderColor' => '#fff',
+                            'borderWidth' => 2
+                        ]]
+                    ],
+                    'options' => ['responsive' => true, 'maintainAspectRatio' => true]
+                ];
+                $chartUrl = 'https://quickchart.io/chart?c=' . urlencode(json_encode($interactionChartConfig)) . '&w=700&h=400';
+                
+                $html .= "<h2>User Interactions Distribution</h2>";
+                $html .= "<img src='" . htmlspecialchars($chartUrl) . "' class='chart-img' alt='Interactions Chart'>";
+                
+                $html .= "<h2>Interaction Types Table</h2><table><tr><th>Interaction Type</th><th>Count</th></tr>";
                 foreach ($report_snapshot['interactions'] as $type => $count) {
                     if ($count > 0) {
                         $html .= "<tr><td>" . htmlspecialchars($type) . "</td><td>" . htmlspecialchars((string)$count) . "</td></tr>";
@@ -570,7 +612,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 }
                 $html .= "</table>";
             } elseif ($report_snapshot['data_type'] === 'navigation' && !empty($report_snapshot['navigation'])) {
-                $html .= "<h2>Navigation Timing Distribution</h2><table><tr><th>Time Bucket</th><th>Occurrences</th></tr>";
+                // Engagement navigation timing chart
+                $navChartConfig = [
+                    'type' => 'bar',
+                    'data' => [
+                        'labels' => array_keys($report_snapshot['navigation']),
+                        'datasets' => [[
+                            'label' => 'Sample Count',
+                            'data' => array_values($report_snapshot['navigation']),
+                            'backgroundColor' => '#3b82f6',
+                            'borderColor' => '#1e40af',
+                            'borderWidth' => 1
+                        ]]
+                    ],
+                    'options' => ['responsive' => true, 'maintainAspectRatio' => true]
+                ];
+                $chartUrl = 'https://quickchart.io/chart?c=' . urlencode(json_encode($navChartConfig)) . '&w=800&h=400';
+                
+                $html .= "<h2>Navigation Timing Distribution</h2>";
+                $html .= "<img src='" . htmlspecialchars($chartUrl) . "' class='chart-img' alt='Navigation Timing Chart'>";
+                
+                $html .= "<h2>Timing Buckets Table</h2><table><tr><th>Time Bucket</th><th>Occurrences</th></tr>";
                 foreach ($report_snapshot['navigation'] as $bucket => $count) {
                     if ($count > 0) {
                         $html .= "<tr><td>" . htmlspecialchars($bucket) . "</td><td>" . htmlspecialchars((string)$count) . "</td></tr>";
