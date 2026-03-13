@@ -32,7 +32,7 @@ try {
     // Table might already exist, continue
 }
 
-$allowed_categories = ['performance', 'interactions', 'navigation'];
+$allowed_categories = ['performance', 'behavioral', 'engagement'];
 
 // Determine what reports the user can access
 $accessible_categories = $allowed_categories;
@@ -420,7 +420,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><?= htmlspecialchars($report_category === 'performance' ? 'Performance Metrics' : ($report_category === 'interactions' ? 'User Interactions' : 'Navigation Performance')) ?></title>
+  <title><?= htmlspecialchars($report_category === 'performance' ? 'Performance Metrics' : ($report_category === 'behavioral' ? 'User Behavioral Patterns' : 'Engagement Performance')) ?></title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
@@ -987,8 +987,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
         <?php
         $titles = [
           'performance' => 'Performance Metrics Summary',
-          'interactions' => 'User Interactions Analysis',
-          'navigation' => 'Navigation Performance'
+          'behavioral' => 'User Behavioral Analysis',
+          'engagement' => 'Engagement Performance'
         ];
         echo '';
         ?> 
@@ -998,8 +998,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
         <?php
         $descs = [
           'performance' => 'Core Web Vitals (FCP, LCP, CLS) and performance metrics analysis',
-          'interactions' => 'User behavior patterns and engagement metrics',
-          'navigation' => 'Page load timing and navigation performance distribution'
+          'behavioral' => 'User behavior patterns and engagement metrics',
+          'engagement' => 'Page load timing and navigation performance distribution'
         ];
         echo htmlspecialchars($descs[$report_category] ?? 'Report data');
         ?>
@@ -1011,8 +1011,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
       <?php
       $tab_labels = [
         'performance' => 'Performance',
-        'interactions' => 'Interactions',
-        'navigation' => 'Navigation'
+        'behavioral' => 'Behavioral',
+        'engagement' => 'Engagement'
       ];
       foreach ($accessible_categories as $cat): ?>
         <button class="nav-tab <?= $report_category === $cat ? 'active' : '' ?>" onclick="location.href='?report=<?= htmlspecialchars($cat) ?>'">
@@ -1081,11 +1081,11 @@ foreach ($metricTimelineByType as $metric => $entries) {
         </div>
       </div>
 
-    <?php elseif ($report_category === 'interactions'): ?>
-      <!-- INTERACTIONS REPORT -->
+    <?php elseif ($report_category === 'behavioral'): ?>
+      <!-- BEHAVIORAL REPORT -->
       <div class="charts-grid">
         <div class="chart-card">
-          <h2>User Interaction Distribution</h2>
+          <h2>User Behavioral Distribution</h2>
           <p>Top 15 interaction event types by frequency</p>
           <div class="chart-meta">
             <strong>Total interactions:</strong> <?= array_sum($interactionData) ?>
@@ -1096,7 +1096,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
         </div>
 
         <div class="chart-card">
-          <h2>Interaction Event Breakdown</h2>
+          <h2>Behavioral Event Breakdown</h2>
           <p>Detailed count of each interaction type recorded</p>
           <div class="table-responsive">
             <table>
@@ -1126,8 +1126,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
         </div>
       </div>
 
-    <?php elseif ($report_category === 'navigation'): ?>
-      <!-- NAVIGATION REPORT -->
+    <?php elseif ($report_category === 'engagement'): ?>
+      <!-- ENGAGEMENT REPORT -->
       <div class="charts-grid">
         <div class="chart-card">
           <h2>Navigation Timing Distribution</h2>
@@ -1328,8 +1328,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
       });
     <?php endif; ?>
 
-    // Interaction Distribution Chart (only for interactions report)
-    <?php if ($report_category === 'interactions'): ?>
+    // Behavioral Distribution Chart (only for behavioral report)
+    <?php if ($report_category === 'behavioral'): ?>
       const interactionLabels = <?= json_encode($interactionLabels) ?>;
       const interactionData = <?= json_encode($interactionData) ?>;
 
@@ -1360,8 +1360,8 @@ foreach ($metricTimelineByType as $metric => $entries) {
       });
     <?php endif; ?>
 
-    // Navigation Histogram Chart (only for navigation report)
-    <?php if ($report_category === 'navigation'): ?>
+    // Navigation Histogram Chart (only for engagement report)
+    <?php if ($report_category === 'engagement'): ?>
       const navLabels = <?= json_encode($navLabels) ?>;
       const navData = <?= json_encode($navData) ?>;
 
