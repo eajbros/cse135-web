@@ -83,6 +83,14 @@ try {
     die('Server error: Database connection failed. Contact administrator.');
 }
 
+// Get current user info with validation (initialize early for POST handlers)
+$user_id = $_SESSION['user_id'] ?? null;
+if (!$user_id) {
+    $page_error = 'Session error: User ID not found. Please log in again.';
+}
+$display_name = $_SESSION['display_name'] ?? ($_SESSION['username'] ?? 'User');
+$role = get_user_role();
+
 $allowed_categories = ['performance', 'behavioral', 'engagement'];
 
 // Determine what reports the user can access
@@ -460,14 +468,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $comment_error = $e->getMessage();
     }
 }
-
-// Get current user info with validation
-$user_id = $_SESSION['user_id'] ?? null;
-if (!$user_id) {
-    $page_error = 'Session error: User ID not found. Please log in again.';
-}
-$display_name = $_SESSION['display_name'] ?? ($_SESSION['username'] ?? 'User');
-$role = get_user_role();
 
 // Display warning if beacons had corruption
 if ($malformed_beacon_count > 0) {
@@ -1493,23 +1493,68 @@ foreach ($metricTimelineByType as $metric => $entries) {
           <input type="hidden" name="action" value="save_report">
           <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
           
+          <div id="formMessage" style="display: none; padding: 12px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem;">
+          </div>
+          
           <div>
             <label for="report_name" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">Report Name</label>
             <input type="text" id="report_name" name="report_name" required placeholder="e.g., Q1 Performance Analysis" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem;">
           </div>
           
           <div style="display: flex; gap: 8px; margin-top: 12px;">
-            <button type="submit" style="flex: 1; background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer;">Save</button>
+            <button type="submit" id="saveBtn" style="flex: 1; background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer;">Save</button>
             <button type="button" onclick="document.getElementById('saveReportModal').style.display='none'" style="flex: 1; background: var(--border); color: var(--text); border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer;">Cancel</button>
           </div>
         </form>
         
         <script>
           document.getElementById('saveReportForm').addEventListener('submit', function(e) {
-            // Optional: add a small delay for visual feedback, then redirect to dashboard
-            setTimeout(function() {
-              window.location.href = '/index.php';
-            }, 500);
+            e.preventDefault();
+            const btn = document.getElementById('saveBtn');
+            const msgDiv = document.getElementById('formMessage');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+            
+            fetch(window.location.href, {
+              method: 'POST',
+              body: new FormData(this)
+            })
+            .then(response => response.text())
+            .then(html => {
+              msgDiv.style.display = 'block';
+              if (html.includes("saved successfully")) {
+                msgDiv.style.background = '#ecfdf3';
+                msgDiv.style.color = '#047857';
+                msgDiv.style.border = '1px solid #a7f3d0';
+                msgDiv.textContent = 'Report saved successfully! Redirecting to dashboard...';
+                setTimeout(() => {
+                  window.location.href = '/index.php';
+                }, 1500);
+              } else if (html.includes("Session error") || html.includes("Access denied") || html.includes("Security")) {
+                msgDiv.style.background = '#fef2f2';
+                msgDiv.style.color = '#b91c1c';
+                msgDiv.style.border = '1px solid #fecaca';
+                msgDiv.textContent = 'Error: ' + (html.match(/(?:Session error|Access denied|Security)[^<]*/)?.[0] || 'Unknown error');
+                btn.disabled = false;
+                btn.textContent = 'Save';
+              } else {
+                msgDiv.style.background = '#fef2f2';
+                msgDiv.style.color = '#b91c1c';
+                msgDiv.style.border = '1px solid #fecaca';
+                msgDiv.textContent = 'Error: Could not save report. Please try again.';
+                btn.disabled = false;
+                btn.textContent = 'Save';
+              }
+            })
+            .catch(err => {
+              msgDiv.style.display = 'block';
+              msgDiv.style.background = '#fef2f2';
+              msgDiv.style.color = '#b91c1c';
+              msgDiv.style.border = '1px solid #fecaca';
+              msgDiv.textContent = 'Network error: ' + err.message;
+              btn.disabled = false;
+              btn.textContent = 'Save';
+            });
           });
         </script>
       </div>

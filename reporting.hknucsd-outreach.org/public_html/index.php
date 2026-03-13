@@ -18,7 +18,6 @@ try {
     SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
     FROM saved_reports
     LEFT JOIN users u ON saved_reports.analyst_id = u.id
-    WHERE pdf_path IS NOT NULL
     ORDER BY created_at DESC
   ");
   $stmt->execute();
@@ -94,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
           SELECT id, report_name, category, created_at, report_data, pdf_path, analyst_id, u.display_name
           FROM saved_reports
           LEFT JOIN users u ON saved_reports.analyst_id = u.id
-          WHERE pdf_path IS NOT NULL
           ORDER BY created_at DESC
         ");
         $stmt->execute();
