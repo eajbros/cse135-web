@@ -10,6 +10,16 @@ if (!is_admin() && !is_analyst()) {
 
 require_once __DIR__ . '/db.php';
 
+// Initialize CSRF token for form submission
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrf_token = $_SESSION['csrf_token'] ?? '';
+
+// Initialize error tracking
+$page_error = '';
+$page_warning = '';
+
 // Ensure report_comments table exists with correct schema
 try {
     $pdo->exec("
@@ -29,7 +39,39 @@ try {
         )
     ");
 } catch (Exception $e) {
-    // Table might already exist, continue
+    $page_error = 'Database error: Unable to access report comments. Please try again later.';
+}
+
+// Ensure saved_reports table exists for PDF exports
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS saved_reports (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            category VARCHAR(50) NOT NULL,
+            analyst_id INT NOT NULL,
+            report_name VARCHAR(255) NOT NULL,
+            report_data LONGTEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (analyst_id) REFERENCES users(id) ON DELETE CASCADE,
+            INDEX idx_category (category),
+            INDEX idx_analyst_id (analyst_id),
+            INDEX idx_created_at (created_at)
+        )
+    ");
+} catch (Exception $e) {
+    // Table might already exist
+}
+
+// Verify required tables exist
+try {
+    $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
+    if ($stmt->rowCount() === 0) {
+        http_response_code(500);
+        die('Server error: Required tables not found. Contact administrator.');
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    die('Server error: Database connection failed. Contact administrator.');
 }
 
 $allowed_categories = ['performance', 'behavioral', 'engagement'];
@@ -171,10 +213,14 @@ $eventTimeline = [];
 $metricsTimeline = [];
 
 $ignoredInteractionTypes = ['perf', 'static', 'performance_required'];
+$malformed_beacon_count = 0;
 
 foreach ($rows as $row) {
     $payload = json_decode($row['payload'], true);
-    if (!is_array($payload)) continue;
+    if (!is_array($payload)) {
+        $malformed_beacon_count++;
+        continue;
+    }
     
     $events = $payload['events'] ?? [];
     if (!is_array($events)) continue;
@@ -349,55 +395,130 @@ $comment_message = '';
 $comment_error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_comment') {
     try {
-        if (is_analyst() || is_admin()) {
-            $content = trim($_POST['content'] ?? '');
-            $is_markdown = isset($_POST['is_markdown']) ? 1 : 0;
-            
-            if (empty($content)) {
-                throw new Exception('Comment cannot be empty.');
-            }
-            
-            if (strlen($content) > 10000) {
-                throw new Exception('Comment is too long (max 10,000 characters).');
-            }
-            
-            $stmt = $pdo->prepare("
-                INSERT INTO report_comments (category, analyst_id, content, is_markdown, is_published)
-                VALUES (?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $report_category,
-                $_SESSION['user_id'] ?? null,
-                $content,
-                $is_markdown,
-                1
-            ]);
-            
-            $comment_message = 'Comment added successfully!';
-            
-            // Reload comments
-            $stmt = $pdo->prepare("
-                SELECT rc.id, rc.content, rc.is_markdown, rc.is_published, rc.created_at, rc.updated_at, 
-                       u.display_name, u.username
-                FROM report_comments rc
-                LEFT JOIN users u ON rc.analyst_id = u.id
-                WHERE rc.category = ? AND rc.is_published = 1
-                ORDER BY rc.created_at DESC
-            ");
-            $stmt->execute([$report_category]);
-            $comments = $stmt->fetchAll();
-        } else {
-            throw new Exception('Only analysts and admins can add comments.');
+        // Verify CSRF token
+        $submitted_token = $_POST['csrf_token'] ?? '';
+        if (empty($submitted_token) || !hash_equals($csrf_token, $submitted_token)) {
+            throw new Exception('Security validation failed. Please try again.');
         }
+        
+        // Re-verify permission (defense-in-depth)
+        if (!(is_analyst() || is_admin())) {
+            throw new Exception('You do not have permission to add comments.');
+        }
+        
+        // Validate user_id exists
+        if (!$user_id) {
+            throw new Exception('Session error: Unable to identify user. Please log in again.');
+        }
+        
+        $content = trim($_POST['content'] ?? '');
+        $is_markdown = isset($_POST['is_markdown']) ? 1 : 0;
+        
+        if (empty($content)) {
+            throw new Exception('Comment cannot be empty.');
+        }
+        
+        if (strlen($content) > 10000) {
+            throw new Exception('Comment is too long (max 10,000 characters).');
+        }
+        
+        $stmt = $pdo->prepare("
+            INSERT INTO report_comments (category, analyst_id, content, is_markdown, is_published)
+            VALUES (?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $report_category,
+            $user_id,
+            $content,
+            $is_markdown,
+            1
+        ]);
+        
+        $comment_message = 'Comment added successfully!';
+        
+        // Reload comments
+        $stmt = $pdo->prepare("
+            SELECT rc.id, rc.content, rc.is_markdown, rc.is_published, rc.created_at, rc.updated_at, 
+                   u.display_name, u.username
+            FROM report_comments rc
+            LEFT JOIN users u ON rc.analyst_id = u.id
+            WHERE rc.category = ? AND rc.is_published = 1
+            ORDER BY rc.created_at DESC
+        ");
+        $stmt->execute([$report_category]);
+        $comments = $stmt->fetchAll();
     } catch (Exception $e) {
         $comment_error = $e->getMessage();
     }
 }
 
-// Get current user info
-$display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
-$role = get_user_role();
+// Get current user info with validation
 $user_id = $_SESSION['user_id'] ?? null;
+if (!$user_id) {
+    $page_error = 'Session error: User ID not found. Please log in again.';
+}
+$display_name = $_SESSION['display_name'] ?? ($_SESSION['username'] ?? 'User');
+$role = get_user_role();
+
+// Display warning if beacons had corruption
+if ($malformed_beacon_count > 0) {
+    $page_warning = "Note: {$malformed_beacon_count} beacon(s) had invalid data and were skipped from analysis.";
+}
+
+// Handle report save
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_report') {
+    try {
+        // Verify CSRF token
+        $submitted_token = $_POST['csrf_token'] ?? '';
+        if (empty($submitted_token) || !hash_equals($csrf_token, $submitted_token)) {
+            throw new Exception('Security validation failed. Please try again.');
+        }
+        
+        // Verify permission
+        if (!(is_analyst() || is_admin())) {
+            throw new Exception('You do not have permission to save reports.');
+        }
+        
+        if (!$user_id) {
+            throw new Exception('Session error: Unable to identify user. Please log in again.');
+        }
+        
+        $report_name = trim($_POST['report_name'] ?? '');
+        if (empty($report_name)) {
+            throw new Exception('Report name cannot be empty.');
+        }
+        
+        if (strlen($report_name) > 255) {
+            throw new Exception('Report name is too long (max 255 characters).');
+        }
+        
+        // Package report data as JSON snapshot
+        $report_snapshot = [
+            'category' => $report_category,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'analyst' => $display_name,
+            'metrics' => $metricSummary ?? [],
+            'interactions' => array_combine($interactionLabels ?? [], $interactionData ?? []),
+            'navigation' => array_combine($navLabels ?? [], $navData ?? []),
+            'comments_count' => count($comments ?? [])
+        ];
+        
+        $stmt = $pdo->prepare("
+            INSERT INTO saved_reports (category, analyst_id, report_name, report_data)
+            VALUES (?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $report_category,
+            $user_id,
+            $report_name,
+            json_encode($report_snapshot)
+        ]);
+        
+        $comment_message = "Report '{$report_name}' saved successfully! View it on the dashboard.";
+    } catch (Exception $e) {
+        $comment_error = $e->getMessage();
+    }
+}
 
 // Prepare metric timeline data (last 20 entries per metric, sorted by timestamp)
 $metricTimelineByType = [];
@@ -420,6 +541,9 @@ foreach ($metricTimelineByType as $metric => $entries) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta http-equiv="X-Frame-Options" content="SAMEORIGIN">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self';">
   <title><?= htmlspecialchars($report_category === 'performance' ? 'Performance Metrics' : ($report_category === 'behavioral' ? 'User Behavioral Patterns' : 'Engagement Performance')) ?></title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -963,11 +1087,18 @@ foreach ($metricTimelineByType as $metric => $entries) {
   </style>
 </head>
 <body>
+  <noscript>
+    <div style="background: #fef2f2; color: #b91c1c; padding: 16px 24px; text-align: center; font-weight: 600;">
+      This reporting dashboard requires JavaScript to display charts and interactive features. Please enable JavaScript in your browser.
+    </div>
+  </noscript>
+
   <nav class="navbar">
     <div class="navbar-brand">Reporting Dashboard</div>
     <div class="navbar-content">
       <div class="navbar-nav">
         <a href="/index.php">Dashboard</a>
+        <a href="/charts.php">Charts</a>
         <a href="/report.php">Data Table</a>
       </div>
       <div class="user-info">
@@ -982,6 +1113,22 @@ foreach ($metricTimelineByType as $metric => $entries) {
   </nav>
 
   <div class="container">
+    <?php if ($page_error): ?>
+      <div style="padding: 16px; margin-bottom: 24px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; font-weight: 600;">
+        <?= htmlspecialchars($page_error) ?>
+      </div>
+    <?php endif; ?>
+
+    <?php if ($page_warning): ?>
+      <div style="padding: 16px; margin-bottom: 24px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; color: #92400e; font-weight: 500;">
+        <?= htmlspecialchars($page_warning) ?>
+      </div>
+    <?php endif; ?>
+
+    <div style="padding: 12px 16px; margin-bottom: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af; font-size: 0.9rem;">
+      <strong>Tip:</strong> Click legend items to hide/show metrics. On time-series charts, scroll to zoom or drag to pan. Double-click to reset view.
+    </div>
+
     <div class="page-header">
       <h1>
         <?php
@@ -1004,6 +1151,11 @@ foreach ($metricTimelineByType as $metric => $entries) {
         echo htmlspecialchars($descs[$report_category] ?? 'Report data');
         ?>
       </p>
+      <?php if (is_analyst() || is_admin()): ?>
+        <div style="margin-top: 16px;">
+          <button onclick="document.getElementById('saveReportModal').style.display='block'" style="background: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem;">Save Report</button>
+        </div>
+      <?php endif; ?>
     </div>
 
     <!-- Report Navigation Tabs -->
@@ -1194,6 +1346,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
         <div class="comment-form">
           <form method="POST">
             <input type="hidden" name="action" value="add_comment">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
             
             <div class="form-group">
               <label for="content">Add Your Analysis</label>
@@ -1252,6 +1405,33 @@ foreach ($metricTimelineByType as $metric => $entries) {
         <p style="color: var(--muted); margin-top: 24px; text-align: center;">No comments yet. Be the first to share your insights!</p>
       <?php endif; ?>
     </section>
+
+    <!-- SAVE REPORT MODAL -->
+    <?php if (is_analyst() || is_admin()): ?>
+    <div id="saveReportModal" style="display:none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.4);">
+      <div style="background-color: var(--card); margin: 10% auto; padding: 24px; border: 1px solid var(--border); border-radius: 8px; width: 90%; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="margin: 0; font-size: 1.3rem;">Save Report</h2>
+          <button onclick="document.getElementById('saveReportModal').style.display='none'" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--muted);">&times;</button>
+        </div>
+        
+        <form method="POST" style="display: flex; flex-direction: column; gap: 12px;">
+          <input type="hidden" name="action" value="save_report">
+          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+          
+          <div>
+            <label for="report_name" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">Report Name</label>
+            <input type="text" id="report_name" name="report_name" required placeholder="e.g., Q1 Performance Analysis" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem;">
+          </div>
+          
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button type="submit" style="flex: 1; background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer;">Save</button>
+            <button type="button" onclick="document.getElementById('saveReportModal').style.display='none'" style="flex: 1; background: var(--border); color: var(--text); border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer;">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <?php endif; ?>
   </div>
 
   <script>
@@ -1296,7 +1476,7 @@ foreach ($metricTimelineByType as $metric => $entries) {
         }
       }
 
-      new Chart(document.getElementById('performanceChart'), {
+      let performanceChart = new Chart(document.getElementById('performanceChart'), {
         type: 'line',
         data: {
           labels: allTimestamps.map(t => new Date(t).toLocaleTimeString()),
@@ -1312,7 +1492,25 @@ foreach ($metricTimelineByType as $metric => $entries) {
           plugins: {
             legend: {
               display: true,
-              position: 'bottom'
+              position: 'bottom',
+              onClick: function(e, legendItem, legend) {
+                const index = legendItem.datasetIndex;
+                const chart = legend.chart;
+                const meta = chart.getDatasetMeta(index);
+                meta.hidden = !meta.hidden;
+                chart.update();
+              }
+            },
+            zoom: {
+              zoom: {
+                wheel: { enabled: true, speed: 0.1 },
+                pinch: { enabled: true },
+                mode: 'xy'
+              },
+              pan: {
+                enabled: true,
+                mode: 'xy'
+              }
             }
           },
           scales: {
@@ -1325,6 +1523,11 @@ foreach ($metricTimelineByType as $metric => $entries) {
             }
           }
         }
+      });
+
+      // Add double-click to reset zoom
+      document.getElementById('performanceChart').addEventListener('dblclick', () => {
+        performanceChart.resetZoom();
       });
     <?php endif; ?>
 
@@ -1353,7 +1556,14 @@ foreach ($metricTimelineByType as $metric => $entries) {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              position: 'right'
+              position: 'right',
+              onClick: function(e, legendItem, legend) {
+                const index = legendItem.index;
+                const chart = legend.chart;
+                const meta = chart.getDatasetMeta(0);
+                meta.data[index].hidden = !meta.data[index].hidden;
+                chart.update();
+              }
             }
           }
         }

@@ -2,9 +2,12 @@
 require_once 'auth.php';
 require_login();
 
+require_once 'db.php';
+
 $display_name = $_SESSION['display_name'] ?? $_SESSION['username'];
 $role = get_user_role();
 $avatar_char = strtoupper(substr($display_name, 0, 1));
+$user_id = $_SESSION['user_id'] ?? null;
 
 $recent_exports = [];
 $exports_dir = __DIR__ . '/exports';
@@ -25,6 +28,49 @@ if (is_dir($exports_dir)) {
       'name' => $basename,
       'modified' => $modified ? date('Y-m-d H:i', $modified) : 'Unknown time',
     ];
+  }
+}
+
+// Fetch saved reports for this user
+$saved_reports = [];
+if ((is_analyst() || is_admin()) && $user_id) {
+  try {
+    $stmt = $pdo->prepare("
+      SELECT id, report_name, category, created_at, report_data
+      FROM saved_reports
+      WHERE analyst_id = ?
+      ORDER BY created_at DESC
+      LIMIT 6
+    ");
+    $stmt->execute([$user_id]);
+    $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  } catch (Exception $e) {
+    // Silently fail if table doesn't exist
+  }
+}
+
+// Handle delete from dashboard
+$success_msg = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_report') {
+  try {
+    $report_id = (int)($_POST['report_id'] ?? 0);
+    if ($report_id > 0 && $user_id) {
+      $stmt = $pdo->prepare("DELETE FROM saved_reports WHERE id = ? AND analyst_id = ?");
+      $stmt->execute([$report_id, $user_id]);
+      $success_msg = 'Report deleted.';
+      // Refresh saved reports
+      $stmt = $pdo->prepare("
+        SELECT id, report_name, category, created_at, report_data
+        FROM saved_reports
+        WHERE analyst_id = ?
+        ORDER BY created_at DESC
+        LIMIT 6
+      ");
+      $stmt->execute([$user_id]);
+      $saved_reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+  } catch (Exception $e) {
+    // Silently fail
   }
 }
 ?>
@@ -233,6 +279,102 @@ if (is_dir($exports_dir)) {
       color: var(--muted);
       font-size: 0.88rem;
     }
+
+    .section-title {
+      margin: 24px 0 12px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .reports-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .report-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #f9fafb;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .report-title {
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-word;
+      font-size: 0.95rem;
+    }
+
+    .report-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      background: var(--accent);
+      color: white;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: capitalize;
+      width: fit-content;
+    }
+
+    .report-meta {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .report-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .report-actions a,
+    .report-actions button {
+      flex: 1;
+      padding: 6px 8px;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .report-actions a {
+      background: var(--accent);
+      color: white;
+    }
+
+    .report-actions a:hover {
+      background: #1d4ed8;
+    }
+
+    .report-actions button {
+      background: #f3f4f6;
+      color: var(--text);
+    }
+
+    .report-actions button:hover {
+      background: #e5e7eb;
+    }
+
+    .success-msg {
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      background: #ecfdf3;
+      border: 1px solid #a7f3d0;
+      border-radius: 6px;
+      color: #047857;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -265,6 +407,10 @@ if (is_dir($exports_dir)) {
       <p class="subtitle">Your reporting portal home</p>
     </div>
 
+    <?php if ($success_msg): ?>
+      <div class="success-msg"><?= htmlspecialchars($success_msg) ?></div>
+    <?php endif; ?>
+
     <div class="panel">
       <?php if (is_viewer()): ?>
         <p>You have read-only access to saved reports.</p>
@@ -279,7 +425,34 @@ if (is_dir($exports_dir)) {
         <p>You are an administrator.</p>
       <?php endif; ?>
 
-      <h2 class="exports-title">Recent PDF Exports</h2>
+      <?php if (is_analyst() || is_admin()): ?>
+        <h2 class="section-title">Saved Reports</h2>
+        <?php if (empty($saved_reports)): ?>
+          <p>No saved reports yet. <a href="/charts.php" style="color: var(--accent); font-weight: 600;">Create one from Charts</a></p>
+        <?php else: ?>
+          <div class="reports-grid">
+            <?php foreach ($saved_reports as $report): ?>
+              <div class="report-card">
+                <div class="report-title"><?= htmlspecialchars($report['report_name']) ?></div>
+                <span class="report-badge"><?= htmlspecialchars($report['category']) ?></span>
+                <div class="report-meta">
+                  Saved: <?= date('M d, Y', strtotime($report['created_at'])) ?>
+                </div>
+                <div class="report-actions">
+                  <a href="/charts.php?report=<?= urlencode($report['category']) ?>">View</a>
+                  <form method="POST" style="flex: 1; margin: 0;">
+                    <input type="hidden" name="action" value="delete_report">
+                    <input type="hidden" name="report_id" value="<?= htmlspecialchars((string)$report['id']) ?>">
+                    <button type="submit" onclick="return confirm('Delete?');">Delete</button>
+                  </form>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      <?php endif; ?>
+
+      <h2 class="section-title">Recent PDF Exports</h2>
       <?php if (empty($recent_exports)): ?>
         <p>No exported PDFs available yet.</p>
       <?php else: ?>
