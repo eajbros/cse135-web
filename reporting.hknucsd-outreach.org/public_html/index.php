@@ -35,14 +35,14 @@ if (is_dir($exports_dir)) {
     $is_saved_report = strpos($basename, 'report-') === 0;
     
     // Get pretty name from database if available, otherwise use filename
-    $display_name = $basename;
+    $download_name = $basename;
     if ($is_saved_report && isset($saved_reports_lookup[$basename])) {
-      $display_name = $saved_reports_lookup[$basename];
+      $download_name = $saved_reports_lookup[$basename];
     }
     
     $all_downloads[] = [
       'type' => $is_saved_report ? 'saved_report' : 'legacy_export',
-      'name' => $display_name,
+      'name' => $download_name,
       'filename' => $basename,
       'category' => $is_saved_report ? 'Report' : 'Export',
       'creator' => 'System',
@@ -94,14 +94,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $is_saved_report = strpos($basename, 'report-') === 0;
             
             // Get pretty name from database if available, otherwise use filename
-            $display_name = $basename;
+            $download_name = $basename;
             if ($is_saved_report && isset($saved_reports_lookup[$basename])) {
-              $display_name = $saved_reports_lookup[$basename];
+              $download_name = $saved_reports_lookup[$basename];
             }
             
             $all_downloads[] = [
               'type' => $is_saved_report ? 'saved_report' : 'legacy_export',
-              'name' => $display_name,
+              'name' => $download_name,
               'filename' => $basename,
               'category' => $is_saved_report ? 'Report' : 'Export',
               'creator' => 'System',
